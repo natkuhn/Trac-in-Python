@@ -1,6 +1,7 @@
 This Trac processor (interpreter) implements Calvin N. Mooers T-64 standard, as described
 in his 1972 document, "Definition and Standard for Trac (R) T-64 Language" RR-284
-(http://web.archive.org/web/20050205173449/http://tracfoundation.org/t64tech.htm)
+(http://web.archive.org/web/20050205173449/http://tracfoundation.org/t64tech.htm).  The
+same page has a link to a "beginner's manual" for Trac.
 
 This archive contains: this README file; the trac.py source code, which runs under Python
 2.7.  I have successfully run it on Mac OS X, where it was developed, and on Windows.  It
