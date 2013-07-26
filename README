@@ -1,8 +1,6 @@
 This Trac processor (interpreter) implements Calvin N. Mooers T-64 standard, as described
 in his 1972 document, "Definition and Standard for Trac (R) T-64 Language" RR-284
-(http://web.archive.org/web/20050205173449/http://tracfoundation.org/t64tech.htm); a pdf
-is included in this repository as T64definition.pdf; copyright on that document is as
-specified therein.
+(http://web.archive.org/web/20050205173449/http://tracfoundation.org/t64tech.htm)
 
 I have also included a few sample programs.  Try #(fb,fact.trac)#(fact,5)'
 
