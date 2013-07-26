@@ -1,0 +1,70 @@
+This Trac processor (interpreter) implements Calvin N. Mooers T-64 standard, as described
+in his 1972 document, "Definition and Standard for Trac (R) T-64 Language" RR-284
+(http://web.archive.org/web/20050205173449/http://tracfoundation.org/t64tech.htm)
+
+There are a few deviations:
+1. Trac input terminates with a "meta character" (default '), and Trac is supposed to
+spring into action as soon as you hit it.  This implementation reads from stdin, which
+waits for an <enter> before sending text along.  So you need to hit <enter> after '.
+The <enter> is stripped out if it immediately follows the meta character.  If <enter> is
+the meta character, there is no problem.  #(rc) actually reads a single character.
+#(rs) could be implemented in the same way, except that it's hard to implement backspace
+and VERY difficult to paste stuff in.  Any intrepid soul who wishes to implement this
+with CURSES would be considered excellent.
+
+2. In the Mooers standard, the storage primitives (fb,sb,eb) store a "hardware address"
+of the storage block in a named form.  I could have slavishly followed this, putting the 
+file name in a form, but instead, you just supply the file name as the argument, e.g. 
+#(fb,fact.trac)' gets the forms in a file "fact.trac" rather than from an address
+(filename) stored in the form named fact.trac
+
+3. I stuck some extra spaces in the trace (#(TN)) output for readability
+
+4. There are a couple extra primitives:
+
+4a.  #(rm,a,b,default) is a "remainder" function, returns a mod b, and the default arg
+for dividing by 0, just as in DV
+
+4b. NI (neutral implied) #(ni,a,b) returns a if the last implied call ("default call")
+was neutral.  This allows scripts to function more like true primitives.  For example:
+
+#(ds,repeat,(#(eq,*2,0,,(#(ni,#)#(cl,*1)#(cl,repeat,*1,#(su,*2,1))))))'
+#(ss,repeat,*1,*2)'
+#(ds,a,(#(ps,hello)))'
+#(repeat,a,5)'
+hellohellohellohellohello
+##(repeat,a,5)'
+#(ps,hello)#(ps,hello)#(ps,hello)#(ps,hello)#(ps,hello)
+
+NI was described to me by Claude Kagan, and I always thought it was part of the T-64 
+standard, but it's not in the Mooers document cited above.  I have no idea whether the
+idea came from Claude, Mooers, or somewhere else.  Presumably not from Mooers, because 
+he used the term "default call" while Claude used the term "implied call."
+
+5. #(mo) goes into T-64 regulation mode. #(mo,e) allows extended primitives such as
+#(rm,5,2); this is per the T-64 standard.  #(mo,e,switches) allows +/- p for extended
+primitives, and +/- u for "unforgiving" mode, i.e. #(mo,e,-p+u) selects no extended
+primitives but "unforgiving" mode.  #(mo,pm) prints out the current mode switches.
+#(mo,ms,:) modifies the syntactic character, in this case to ':', following C.A.R. 
+Kagan... apparently this was easier to type on a Teletype; it's no easier on a standard
+keyboard, so I switched to the # camp... especially since you can put scripts in as
+Python comments, and not have to edit out initial #s.
+
+6. I have also added an 'unforgiving' mode #(mo,e,u) turns it on and #(mo,e,-u) turns it
+off.  It generates error messages and terminates scripts for things such as 'form not
+found', 'too many arguments', 'too few arguments' etc.  Per Mooers extra arguements should
+be ignored, missing arguments filled with null strings (with few exceptions such as the 
+block primitives).  There may be a few scripts that depend on this feature.  In any case,
+it is turned off as a default.
+
+7. The "up arrow" (shift-6 on the teletype) was replaced by the caret probably in the 
+early 1970s.  I use the caret in PF, though with this new-fangled unicode stuff you could
+probably manage a real up-arrow.  :-/
+
+Thanks to Ben Kuhn for getting me Hooked on Pythonics, and to John Levine for
+consultation, stimulation, and general interest.
+
+There are undoubtedly many bugs; I just found a huge one in v0.9.  Let me know, I'll fix
+them!
+
+Nat Kuhn (NSK, nk@natkuhn.com)
