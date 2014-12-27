@@ -117,7 +117,7 @@ screen."""
         except ImportError:
             try:
                 self.impl = _GetchMacCarbon()
-            except ImportError, AttributeError:
+            except (ImportError, AttributeError):
                 self.impl = _GetchUnix()
 
     def __call__(self): return self.impl()
