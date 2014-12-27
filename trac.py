@@ -548,6 +548,8 @@ class tracconsole:
             elif code == 4:
                 raise tracHalt
             elif code == 127: # backspace
+                if string == '':
+                    continue
                 # print a space over the character immediately preceding the cursor
                 # but we can't backspace over newlines
                 if string[-1] != '\n':
