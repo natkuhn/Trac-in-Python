@@ -117,7 +117,7 @@ screen."""
         except ImportError:
             try:
                 self.impl = _GetchMacCarbon()
-            except ImportError, AttributeError:
+            except AttributeError:
                 self.impl = _GetchUnix()
 
     def __call__(self): return self.impl()
@@ -523,45 +523,23 @@ class tracconsole:
         return ch
     
     def readstr(self):
-        """New, improved readstr function. Rather than using stdin.readline(), loops on
-        getch(); this allows it to capture the metacharacter immediately, rather than
-        waiting for a newline. If it receives a backspace, it types over the previous
-        character, so everything looks normal. Works fine with copy-paste too.
-
-        Known issues:
-        1. Screws up backspacing when the line is long enough to get soft-wrapped by the
-        terminal. Not implemented because I don't know the how the original TRAC behaved
-        in this circumstance.
-        2. Can't backspace over user-inserted newlines either (ditto).
-        3. Does not have nice GNU-readline-ish features like paren matching, ^H for
-        backspace, history, etc. Could be implemented depending on how much of a TRAC
-        purist you are.
-
-        Unknown issues: Lots. Still needs more extensive testing."""
         string = ''
         mc = metachar.get()
         while True:
-            ch = self.inkey()
-            code = ord(ch)
-            if code == 3: # ^C
-                raise KeyboardInterrupt
-            elif code == 4:
+            if self.charbuf == '':
+                self.charbuf = sys.stdin.readline()
+            if self.charbuf == '':
                 raise tracHalt
-            elif code == 127: # backspace
-                # print a space over the character immediately preceding the cursor
-                # but we can't backspace over newlines
-                if string[-1] != '\n':
-                    print('\b \b', end='')
-                    string = string[:-1]
-            elif code == 13:
-                string += '\n'
-                print()
+            metaloc = self.charbuf.find(mc)
+            if metaloc >= 0:
+                string += self.charbuf[0:metaloc]    #have meta
+                self.charbuf = self.charbuf[metaloc+1:]
+                if mc != '\n' and self.charbuf[0] == '\n':  #hack to strip \n immed following meta
+                    self.charbuf = self.charbuf[1:]
+                return string
             else:
-                print(ch, end='')
-                if ch == mc:
-                    return string
-                else:
-                    string += ch
+                string += self.charbuf
+                self.charbuf = ''   # no meta, continue
     
 tc = tracconsole()
 
