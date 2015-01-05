@@ -1,12 +1,13 @@
-This Trac processor (interpreter) implements Calvin N. Mooers T-64 standard, as described
-in his 1972 document, "Definition and Standard for Trac (R) T-64 Language" RR-284
-(http://web.archive.org/web/20050205173449/http://tracfoundation.org/t64tech.htm).  The
-same page has a link to a "beginner's manual" for Trac.  I've also made a blog post about
-this project, at http://nats-tech.blogspot.com/2013/07/the-land-of-trac.html.
+This Trac processor (interpreter) implements Calvin N. Mooers T-64 standard, as de-
+scribed in his 1972 document, "Definition and Standard for Trac (R) T-64 Language" 
+(http://web.archive.org/web/20050205173449/http://tracfoundation.org/t64tech.htm), 
+also known as RR-284.  The same page has a link to a "beginner's manual" for Trac.  
+I've also made a blog post about this project, which is available at 
+http://nats-tech.blogspot.com/2013/07/the-land-of-trac.html.
 
-The home page for this project is https://github.com/natkuhn/Trac-in-Python.  If you are
-looking at this file on that page, you can download the file archive just by clicking the 
-"Download ZIP" button in the right-hand sidebar.
+The home page for this project is https://github.com/natkuhn/Trac-in-Python.  If you 
+are looking at this file on that page, you can download the file archive just by 
+clicking the "Download ZIP" button in the right-hand sidebar.
 
 This archive contains: this README file, and the trac.py source code.  I have also
 included a few sample scripts.  Try #(fb,fact.trac)#(fact,5)'<enter>
@@ -27,12 +28,15 @@ There are a few deviations from the Mooers standard:
 
 1. Trac input terminates with a "meta character" (default '), and Trac is supposed to
 spring into action as soon as you hit it.  This implementation reads from stdin, which
-waits for an <enter> before sending text along to the program.  So you need to hit <enter> 
-after '.  The <enter> is stripped out if it immediately follows the meta character.  If 
-<enter> is the meta character, there is no problem.  #(rc) actually reads a single
-character.  #(rs) could be implemented in the same way, except that it's hard to implement
-backspace and VERY difficult to paste stuff in.  Any intrepid soul who wishes to implement
-this with CURSES would be considered excellent.
+waits for an <enter> before sending text along to the program.  So you need to hit 
+<enter> after '.  The <enter> is stripped out if it immediately follows the meta 
+character.  If <enter> is the meta character, there is no problem.  #(rc) actually 
+reads a single character.  #(rs) could be implemented in the same way, except that it's 
+hard to implement backspace and VERY difficult to paste stuff in.  Any intrepid soul who
+wishes to implement this with CURSES would be considered excellent.
+
+UPDATE 1/5/14: I am working on an update which will allow real meta characters, and 
+cursor-key editing a la Unix readline.  Stay tuned.  NSK
 
 2. In the Mooers standard, the storage primitives (fb,sb,eb) store a "hardware address"
 of the storage block in a named form.  I could have slavishly followed this, putting the 
@@ -74,14 +78,14 @@ Python comments, and not have to edit out initial #s.
 
 6. I have also added an 'unforgiving' mode #(mo,e,u) turns it on and #(mo,e,-u) turns it
 off.  It generates error messages and terminates scripts for things such as 'form not
-found', 'too many arguments', 'too few arguments' etc.  Per Mooers extra arguements should
-be ignored, missing arguments filled with null strings (with few exceptions such as the 
-block primitives).  There may be a few scripts that depend on this feature.  In any case,
-it is turned off as a default.
+found', 'too many arguments', 'too few arguments' etc.  Per Mooers extra arguements 
+should be ignored, missing arguments filled with null strings (with few exceptions such 
+as the block primitives).  There may be a few scripts that depend on this feature.  In 
+any case, it is turned off as a default.
 
 7. The "up arrow" (shift-6 on the teletype) was replaced by the caret probably in the 
-early 1970s.  I use the caret in PF, though with this new-fangled unicode stuff you could
-probably manage a real up-arrow.  :-/
+early 1970s.  I use the caret in PF, though with this new-fangled unicode stuff you 
+could probably manage a real up-arrow.  :-/
 
 Thanks to Ben Kuhn for getting me Hooked on Pythonics, and to John Levine for
 consultation, stimulation, and general interest.
