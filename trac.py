@@ -58,10 +58,26 @@ x, b, or l.  #(mo,rt) returns the current mode, in lower case.  Incidentally,
             from Ben Kuhn.
     x   xterm mode: default mode for Unix/Mac OS X.  Works with backspace, 
             delete, cursor up/down/left/right, and implements unix shell-
-            style history using alt-left-arrow and alt-right-arrow.  I hope
-            someone likes this because it was truly painful to implement.
+            style history using alt-left-arrow and alt-right-arrow.  Shift-
+            left- and right-arrow move to beginning and end of the current
+            line.  I hope someone likes this because it was truly painful to 
+            implement.
 
-6. I have also added an 'unforgiving' mode: #(mo,e,u) turns it on and 
+6. In xterm mode of #5 above, I have implemented an extended version of
+read string: #(rs,init string,displacement): it is as if the user has already 
+entered 'init string' with the cursor placed at 'displacement'. If 
+'displacement' is positive or 0 is is from the start of the string; if it is 
+negative or -0 it is from the end, i.e. '-0' positions the cursor at the very 
+end of the string.  This makes scripts like this one, to edit a form, possible:
+        
+#(ds,edit,(#(ds,**,##(rs,##(cl,**,<1>,<2>,<3>,<4>,<5>,<6>),-0))#(ss,**,<1>,<2>,<3>,<4>,<5>,<6>)))
+#(ss,edit,**)
+
+#(edit,form) then allows you to edit 'form'.  Note you must move the cursor to
+the end before you hit the meta character, otherwise it will get truncated.
+Hitting down-arrow repeatedly is a quick way to move it to the end.
+
+7. I have also added an 'unforgiving' mode: #(mo,e,u) turns it on and 
 #(mo,e,-u) turns it off.  It generates error messages and terminates scripts 
 for things such as 'form not found', 'too many arguments', 'too few arguments,'
 etc.  Per Mooers extra arguments should be ignored, missing arguments filled 
@@ -69,7 +85,7 @@ with null strings (with few exceptions such as the block primitives).  There
 may be a few scripts that depend on this feature.  In any case, it is turned 
 off as a default.
 
-7. See other extensions to MO in the mode class.
+8. See other extensions to MO in the mode class.
 
 Thanks to Ben Kuhn for getting me Hooked on Pythonics, and to John Levine for 
 consultation, stimulation, and general interest.
@@ -77,6 +93,11 @@ consultation, stimulation, and general interest.
 Please feel free to report bugs!
 
 Nat Kuhn (NSK, nk@natkuhn.com)
+
+        TODO: set arithmetic and esp. boolean radix
+        TODO: test for ^C while in a loop
+        MAYBE: paren matching? really? these kids today are soft!
+        
 """
 # v1.1 implements new RS with left-right cursor keys
 # v1.0 moves the _Getch code into the main module so it all runs out of a single file
@@ -688,21 +709,10 @@ class xConsole(TracConsole):
     
     def readstr(self, *args):
         """
-        RS implementation of unix readline features: left/right cursor keys, 
-        and up/down keys for entry history.
+        RS implementation of unix readline features: cursor keys, 
+        and alt-left/right keys for entry history.
         
         It is implemented using xterm escape sequences.
-        
-        It extends the primitive to #(RS,init string,displacement): it is as
-        if the user has already entered 'init string' with the cursor placed
-        at 'displacement'. If 'displacement' is positive or 0 is is from the 
-        start; if it is negative or -0 it is from the end, i.e. '-0' 
-        positions the cursor at the very end.
-        
-        This makes scripts like this one, to edit a form, possible
-        
-        #(ds,edit,(#(ds,**,##(rs,##(cl,**,<1>,<2>,<3>,<4>,<5>,<6>),-0))#(ss,**,<1>,<2>,<3>,<4>,<5>,<6>)))
-        #(ss,edit,**)
         
         Known issues:
         1. In OS X Terminal, if you type cmd-K to kill scrollback at "> " 
@@ -710,38 +720,9 @@ class xConsole(TracConsole):
             "'ab".  This seems to be a bug in the Mac Terminal program, which I 
             can reproduce in my "screenplay.py" test program.
         2. ^C or ^D with cursor in hanging position overwrites last character
-        
-        NO: get working on MS-Windows, perhaps using http://adoxa.altervista.org/ansicon/
-        NO: minimize escape sequences, e.g. typing at end of input string; check termcap
-            re whether esc sequences work?
-        DONE: paste doesn't work because input stream gets mixed with escape sequences ARG!!
-        DONE: implement up- and down-arrow
-        DONE: make sure MC is printable or newline; and synchar the same?
-        DONE: buffer the chars between ^[ and [
-        DONE: ^D should erase forward in VT100 mode, and maybe ^C?
-        DONE: #(rs,starting string,position)
-        DONE: check if the cursor location argument to RS is out of range
-        DONE: MO switches for screen mode #(mo,rt, x b l)
-        DONE: implement history with alt-arrow
-        
-        TODO: (not RS) set arithmetic and boolean radix
-        TODO: test for ^C while in a loop?
-        MAYBE: ?paren matching? really? these kids today are soft!
-        
-        BUG FIXED: input to hanging position, hit enter, type on next line, insert char before
-            newline; cursor keys don't work properly
-        BUG FIXED: on line which wraps: cursor back to start of wrapped line, hit enter to insert 
-            newline. It prints new line, but shouldn't
-        BUG FIXED: when in hanging pos, doing up-arrow to same line, it takes you to beginning 
-            of row, rather than end of previous row. Check that it works if prev row is 
-            hanging; and check downarrow with hanging stuff. Downarrow from first letter
-            on hanging row goes to hanging pos, not to beg of next row
-        BUG FIXED: on a line which wraps, cursor down from characters past EOL of the wrapped line 
-            jumps down 2 lines, rather than to end of wrapped line.
-        
-        BUG: screen resize can cause cursor to wrap to next line rather than going into 
+        3. screen resize can cause cursor to wrap to next line rather than going into 
             hanging location-->assert not shouldhang error
-        BUG-ish: with meta = \n, go one character over the end of the line, cursor back, 
+        4. with meta = \n, go one character over the end of the line, cursor back, 
             and hit enter; it prints a blank line, unlike hitting enter at the very end of
             the line
         """

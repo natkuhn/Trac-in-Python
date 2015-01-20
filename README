@@ -1,58 +1,48 @@
-This Trac processor (interpreter) implements Calvin N. Mooers T-64 standard, as de-
-scribed in his 1972 document, "Definition and Standard for Trac (R) T-64 Language" 
-(http://web.archive.org/web/20050205173449/http://tracfoundation.org/t64tech.htm), 
-also known as RR-284.  The same page has a link to a "beginner's manual" for Trac.  
-I've also made a blog post about this project, which is available at 
+This Trac processor (interpreter) implements Calvin N. Mooers T-64 standard, as
+described in his 1972 document, "Definition and Standard for Trac (R) T-64 Language" 
+(http://web.archive.org/web/20050205173449/http://tracfoundation.org/t64tech.htm), also known as RR-284.  The same page has a link to a "beginner's manual"
+for Trac.  I've also made a blog post about this project, which is available at 
 http://nats-tech.blogspot.com/2013/07/the-land-of-trac.html.
 
-The home page for this project is https://github.com/natkuhn/Trac-in-Python.  If you 
-are looking at this file on that page, you can download the file archive just by 
-clicking the "Download ZIP" button in the right-hand sidebar.
+The home page for this project is https://github.com/natkuhn/Trac-in-Python.  If you are looking at this file on that page, you can download the file 
+archive just by clicking the "Download ZIP" button in the right-hand sidebar.
 
-This archive contains: this README file, and the trac.py source code.  I have also
-included a few sample scripts.  Try #(fb,fact.trac)#(fact,5)'<enter>
+This archive contains: this README file, and the trac.py source code.  I have 
+also included a few sample scripts.  Try typing:
+#(fb,fact.trac)#(fact,5)'
 
-The program runs well under Python 2.7, and I tried to make it as compatible with Python
-3 as possible, but haven't tried it.  I have successfully run it on Mac OS X, where it
-was developed, and on Windows.  It should also run on Linux, but I haven't tried it yet.
+The program runs well under Python 2.7, and I tried to make it as compatible 
+with Python 3 as possible, but haven't tried it and there may be problems in 
+terms of how unicode-friendly it isn't.  I have successfully run it on Mac OS 
+X, where it was developed, and on Windows.  It should also run on Linux, but I 
+haven't tried it yet.
 
 If you don't have python on your computer, you will need to download it from 
 http://www.python.org
 
-Then, you will need to be at a command line ("Command Prompt" on Windows, Terminal on 
-Mac OS).  Typing "python trac.py" will hopefully get you started.  To exit, type
-#(hl)'<enter> (the "Halt" primitive), or generate an end-of-file (^D on Mac OS/Linux, 
-^Z on Windows).
+Then, you will need to be at a command line ("Command Prompt" on Windows, Terminal on Mac OS).  Typing "python trac.py" will hopefully get you started. 
+To exit, type #(hl)' (the "Halt" primitive), or generate an end-of-file (^D on 
+Mac OS/Linux, ^Z on Windows).  I was able to double-click the "trac.py" file 
+in Windows, and it worked.
 
 There are a few deviations from the Mooers standard:
+1. In the Mooers standard, the storage primitives (fb,sb,eb) store a "hardware 
+address" of the storage block in a named form.  I could have slavishly followed
+this, putting the file name in a form, but instead, you just supply the file 
+name as the argument, e.g. #(fb,fact.trac)' gets the forms in a file 
+"fact.trac" rather than from an address (filename) stored in the form named 
+fact.trac
 
-1. Trac input terminates with a "meta character" (default '), and Trac is supposed to
-spring into action as soon as you hit it.  This implementation reads from stdin, which
-waits for an <enter> before sending text along to the program.  So you need to hit 
-<enter> after '.  The <enter> is stripped out if it immediately follows the meta 
-character.  If <enter> is the meta character, there is no problem.  #(rc) actually 
-reads a single character.  #(rs) could be implemented in the same way, except that it's 
-hard to implement backspace and VERY difficult to paste stuff in.  Any intrepid soul who
-wishes to implement this with CURSES would be considered excellent.
+2. I stuck some extra spaces in the trace (#(TN)) output for readability
 
-UPDATE 1/5/14: I am working on an update which will allow real meta characters, and 
-cursor-key editing a la Unix readline.  Stay tuned.  NSK
+3. There are a couple extra primitives:
 
-2. In the Mooers standard, the storage primitives (fb,sb,eb) store a "hardware address"
-of the storage block in a named form.  I could have slavishly followed this, putting the 
-file name in a form, but instead, you just supply the file name as the argument, e.g. 
-#(fb,fact.trac)' gets the forms in a file "fact.trac" rather than from an address
-(filename) stored in the form named fact.trac
+3a.  #(rm,a,b,default) is a "remainder" function, returns a mod b, and the 
+default arg for dividing by 0, just as in DV
 
-3. I stuck some extra spaces in the trace (#(TN)) output for readability
-
-4. There are a couple extra primitives:
-
-4a.  #(rm,a,b,default) is a "remainder" function, returns a mod b, and the default arg
-for dividing by 0, just as in DV
-
-4b. NI (neutral implied) #(ni,a,b) returns a if the last implied call ("default call")
-was neutral.  This allows scripts to function more like true primitives.  For example:
+3b. NI (neutral implied) #(ni,a,b) returns a if the last implied call 
+("default call") was neutral.  This allows scripts to function more like true 
+primitives.  For example:
 
 #(ds,repeat,(#(eq,*2,0,,(#(ni,#)#(cl,*1)#(cl,repeat,*1,#(su,*2,1))))))'
 #(ss,repeat,*1,*2)'
@@ -62,35 +52,60 @@ hellohellohellohellohello
 ##(repeat,a,5)'
 #(ps,hello)#(ps,hello)#(ps,hello)#(ps,hello)#(ps,hello)
 
-NI was described to me by Claude Kagan, and I always thought it was part of the T-64 
-standard, but it's not in the Mooers document cited above.  I have no idea whether the
-idea came from Claude, Mooers, or somewhere else.  Presumably not from Mooers, because 
-he used the term "default call" while Claude used the term "implied call."
+NI was described to me by Claude Kagan, and I always thought it was part of 
+the T-64 standard, but it's not in the Mooers document cited above.  I have 
+no idea whether the idea came from Claude, Mooers, or somewhere else.  
+Presumably not from Mooers, because he used the term "default call" while 
+Claude used the term "implied call."
 
-5. #(mo) goes into T-64 regulation mode. #(mo,e) allows extended primitives such as
-#(rm,5,2); this is per the T-64 standard.  #(mo,e,switches) allows +/- p for extended
-primitives, and +/- u for "unforgiving" mode, i.e. #(mo,e,-p+u) selects no extended
-primitives but "unforgiving" mode.  #(mo,pm) prints out the current mode switches.
-#(mo,ms,:) modifies the syntactic character, in this case to ':', following C.A.R. 
-Kagan... apparently this was easier to type on a Teletype; it's no easier on a standard
-keyboard, so I switched to the # camp... especially since you can put scripts in as
-Python comments, and not have to edit out initial #s.
+4. The "up arrow" (shift-6 on the teletype) was replaced by the caret probably 
+in the early 1970s.  I use the caret in PF, though with this new-fangled 
+unicode stuff you could probably manage a real up-arrow.  :-/
 
-6. I have also added an 'unforgiving' mode #(mo,e,u) turns it on and #(mo,e,-u) turns it
-off.  It generates error messages and terminates scripts for things such as 'form not
-found', 'too many arguments', 'too few arguments' etc.  Per Mooers extra arguements 
-should be ignored, missing arguments filled with null strings (with few exceptions such 
-as the block primitives).  There may be a few scripts that depend on this feature.  In 
-any case, it is turned off as a default.
+5. Terminal i/o: #(mo,rt,term-mode) allows you to set the terminal mode to 
+x, b, or l.  #(mo,rt) returns the current mode, in lower case.  Incidentally,
+'rt' is for 'reactive typewriter,' Mooers' term for an interactive terminal.
+    l   line-oriented i/o: uses sys.stdin.readline(), so that you need to 
+            hit <enter> before anything is actually read.  Any newline 
+            immediately after a meta character is stripped out.
+    b   basic terminal: implements a rudimentary backspace, which works back
+            to the last newline, and then echoes deleted characters between
+            \s.  Default mode for Windows, has known issues.  Based on code 
+            from Ben Kuhn.
+    x   xterm mode: default mode for Unix/Mac OS X.  Works with backspace, 
+            delete, cursor up/down/left/right, and implements unix shell-
+            style history using alt-left-arrow and alt-right-arrow.  Shift-
+            left- and right-arrow move to beginning and end of the current
+            line.  I hope someone likes this because it was truly painful to 
+            implement.
 
-7. The "up arrow" (shift-6 on the teletype) was replaced by the caret probably in the 
-early 1970s.  I use the caret in PF, though with this new-fangled unicode stuff you 
-could probably manage a real up-arrow.  :-/
+6. In xterm mode of #5 above, I have implemented an extended version of
+read string: #(rs,init string,displacement): it is as if the user has already 
+entered 'init string' with the cursor placed at 'displacement'. If 
+'displacement' is positive or 0 is is from the start of the string; if it is 
+negative or -0 it is from the end, i.e. '-0' positions the cursor at the very 
+end of the string.  This makes scripts like this one, to edit a form, possible:
+        
+#(ds,edit,(#(ds,**,##(rs,##(cl,**,<1>,<2>,<3>,<4>,<5>,<6>),-0))#(ss,**,<1>,<2>,<3>,<4>,<5>,<6>)))
+#(ss,edit,**)
 
-Thanks to Ben Kuhn for getting me Hooked on Pythonics, and to John Levine for
+#(edit,form) then allows you to edit 'form'.  Note you must move the cursor to
+the end before you hit the meta character, otherwise it will get truncated.
+Hitting down-arrow repeatedly is a quick way to move it to the end.
+
+7. I have also added an 'unforgiving' mode: #(mo,e,u) turns it on and 
+#(mo,e,-u) turns it off.  It generates error messages and terminates scripts 
+for things such as 'form not found', 'too many arguments', 'too few arguments,'
+etc.  Per Mooers extra arguments should be ignored, missing arguments filled 
+with null strings (with few exceptions such as the block primitives).  There 
+may be a few scripts that depend on this feature.  In any case, it is turned 
+off as a default.
+
+8. See other extensions to MO in the mode class.
+
+Thanks to Ben Kuhn for getting me Hooked on Pythonics, and to John Levine for 
 consultation, stimulation, and general interest.
 
-There are undoubtedly many bugs; I just found a huge one in v0.9.  Let me know, I'll fix
-them!
+Please feel free to report bugs!
 
 Nat Kuhn (NSK, nk@natkuhn.com)
