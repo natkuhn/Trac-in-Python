@@ -129,10 +129,10 @@ screen."""
     def __init__(self):
         try:
             self.impl = _GetchWindows()
-            the_os = 'w'    #Windows
+            _Getch.the_os = 'w'    #Windows
         except ImportError:
             self.impl = _GetchUnix()
-            the_os = 'u'    #Unix / MacOS Aqua
+            _Getch.the_os = 'u'    #Unix / MacOS Aqua
 
     def __call__(self): return self.impl()
     
@@ -508,15 +508,19 @@ class TracConsole(object):
         if self.inbuf:
             ch = self.inbuf[0]
             self.inbuf = self.inbuf[1:]
-            return ch
         else:
-            return getraw()
+            ch = getraw()
+        code = ord(ch)
+        if code == 3: 
+            raise KeyboardInterrupt     # ^C
+        if code == 4:
+            raise tracHalt              # ^D
+        if code == 13:
+            ch = '\n'
+        return ch
     
     def readch(self):
         ch = self.inkey()
-        code = ord(ch)
-        if code == 3: raise KeyboardInterrupt   # ^C
-        if code == 13: ch = '\n'
         self.printstr(ch)
         return ch
     
@@ -557,11 +561,9 @@ class BasicConsole(TracConsole):
         mc = metachar.get()
         echoing = False #set to true when we BS past \n
         while True:
-            if self.charbuf == '':
-                self.charbuf = sys.stdin.readline()
-            if self.charbuf == '':
-                raise tracHalt
-            elif code == 127: # backspace
+            ch = self.inkey()
+            code = ord(ch)
+            if code == 127: # backspace
                 if string == '':
                     self.bell()
                     continue
@@ -575,11 +577,7 @@ class BasicConsole(TracConsole):
                 if string == '' and echoing:
                     print('\\',end='')
                     echoing = False
-            elif code == 13:
-                string += '\n'
-                print()
-            else:
-                if code == 13: ch = '\n'
+            else:   #anything else
                 if echoing:
                     print('\\',end='')
                     echoing = False
@@ -1725,7 +1723,7 @@ def main():
     global getraw, condict, tc
     getraw = _Getch()
     condict = dict(b=None, l=None, x=None)
-    mode.setcontype('b' if _Getch.the_os == 'w' else 'x')  #default if console type by OS
+    mode.setcontype('x' if _Getch.the_os == 'u' else 'b')  #default if console type by OS
     forms = {}      # the defined strings
     syntchar = syntclass('#')
     metachar = specchar("'")
