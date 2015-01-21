@@ -1699,7 +1699,7 @@ prim( 'hl', tracHalt, exact=0 )
 
 prim( 'mo', mode.setmode )
 
-def main():
+def main(args):
     global syntchar, forms, metachar, activeImpliedCall, tracing
     global getraw, condict, tc
     getraw = _Getch()
@@ -1737,4 +1737,4 @@ def psrs():     # the main loop
         finally:
             for f in forms: forms[f].validate() # for debugging, OK to comment out
 
-if __name__ == '__main__': main()
+if __name__ == '__main__': main(sys.argv[1:])
