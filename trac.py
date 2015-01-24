@@ -66,7 +66,8 @@ x, b, or l.  #(mo,rt) returns the current mode, in lower case.  Incidentally,
             style history using alt-left-arrow and alt-right-arrow.  Shift-
             left- and right-arrow move to beginning and end of the current
             line.  I hope someone likes this because it was truly painful to 
-            implement.
+            implement.  xterm mode drops back to vterm mode if there is no
+            response to device screen-size polls.
 
 #(mo,rt) returns the mode; in the case of x or v it returns mode,rows,cols.
 So to see those, you need ##(mo,rt)
@@ -625,10 +626,6 @@ class BasicConsole(TracConsole):
                     string += ch
 
 class LineConsole(TracConsole):
-#     def __init__(self):
-#         self.contype = 'l'
-#         TracConsole.__init__(self)
-        
     def inkey(self):
         if self.inbuf == '':
             self.inbuf = sys.stdin.readline()
@@ -986,7 +983,7 @@ class InputString(object):
         screen
     rowloc, colloc: the screen coordinates of the current cursor
     numrows, numcols: the size of the screen, either returned by getscrsize()
-    rowdelta: the number of screen rows from the start of "line 0" (i.e. the 
+    rowsdown: the number of screen rows from the start of "line 0" (i.e. the 
         beginning of the "virtual line" that input string stars on) to the
         current screen cursor location
     hanging: True if the actual cursor location is intended to be in hanging 
