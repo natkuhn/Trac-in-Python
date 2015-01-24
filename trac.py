@@ -56,12 +56,20 @@ x, b, or l.  #(mo,rt) returns the current mode, in lower case.  Incidentally,
             to the last newline, and then echoes deleted characters between
             \s.  Default mode for Windows, has known issues.  Based on code 
             from Ben Kuhn.
+    v   vt100 mode: like xterm mode below, but for terminals without the 
+            screen location query (actually most other than MacOS X 
+            Terminal.app). #(mo,rt,v,rows,cols) sets screen size, defaults
+            to 24,80.  Resizing the screen without resetting will have 
+            unpredictable results.
     x   xterm mode: default mode for Unix/Mac OS X.  Works with backspace, 
             delete, cursor up/down/left/right, and implements unix shell-
             style history using alt-left-arrow and alt-right-arrow.  Shift-
             left- and right-arrow move to beginning and end of the current
             line.  I hope someone likes this because it was truly painful to 
             implement.
+
+#(mo,rt) returns the mode; in the case of x or v it returns mode,rows,cols.
+So to see those, you need ##(mo,rt)
 
 6. In xterm mode of #5 above, I have implemented an extended version of
 read string: #(rs,init string,displacement): it is as if the user has already 
@@ -522,8 +530,17 @@ class termError(Exception):
         return ' '.join(map(str,self.args))
 
 class TracConsole(object):
-    def __init__(self):
+    def __init__(self, *args):
         self.inbuf = ''
+        self.settype(*args)
+        
+    def gettype(self):
+        return self.contype
+    
+    def settype(self, *args):
+        self.contype = args[0]
+        if len(args) > 1 and mode.unforgiving:
+            prim.TMAError(1+len(args), 2)
     
     def inkey(self):
         if self.inbuf:
@@ -558,9 +575,6 @@ class BasicConsole(TracConsole):
     is for a basic terminal, e.g. the Windows command line, which doesn't
     have the vt100/xterm escape sequences
     """
-    def __init__(self):
-        self.contype = 'b'
-        TracConsole.__init__(self)
     
     def readstr(self, *args):
         """New, improved readstr function. Rather than using stdin.readline(),
@@ -578,6 +592,7 @@ class BasicConsole(TracConsole):
         2. Doesn't work well when you backspace over a printed-out \ from 
             the echoing mode.
         """
+        global rshistory
         string = ''
         mc = metachar.get()
         echoing = False #set to true when we BS past \n
@@ -604,14 +619,15 @@ class BasicConsole(TracConsole):
                     echoing = False
                 print(ch, end='')
                 if ch == mc:
+                    rshistory.append(string)
                     return string
                 else:
                     string += ch
 
 class LineConsole(TracConsole):
-    def __init__(self):
-        self.contype = 'l'
-        TracConsole.__init__(self)
+#     def __init__(self):
+#         self.contype = 'l'
+#         TracConsole.__init__(self)
         
     def inkey(self):
         if self.inbuf == '':
@@ -626,6 +642,7 @@ class LineConsole(TracConsole):
         return self.inkey()
     
     def readstr(self, *args):
+        global rshistory
         if mode.unforgiving and len(args) > 0:
             prim.TMAError( len(args), 0 )
         string = ''
@@ -636,19 +653,53 @@ class LineConsole(TracConsole):
                 if mc != '\n' and self.inbuf[0] == '\n':
                     #strip \n immed following meta
                     self.inbuf = self.inbuf[1:]
+                rshistory.append(string)
                 return string
             else:
                 string += ch
 
+DEFROWS = 24
+DEFCOLS = 80
+MINROWS = 4
+MINCOLS = 10
+
 class xConsole(TracConsole):
-    global ESC
+    global ESC, DEFROWS, DEFCOLS, MINROWS, MINCOLS
     ESC = chr(27)
 
-    def __init__(self):
-        self.contype = 'x'
-        self.history = []
+    def __init__(self, *args):
+        (self.termrows, self.termcols) = (DEFROWS, DEFCOLS)
         self.carriagepos = 0    #self.carriagepos is needed for the history scrollback
-        TracConsole.__init__(self)
+        TracConsole.__init__(self, *args)
+    
+    def settype(self, type, *args):
+        self.contype = type
+        if type == 'x':
+            if mode.unforgiving and len(args) > 0:
+                raise prim.TMAError(2+len(args),2)
+            return
+        elif type == 'v':
+            if len(args) == 0: return
+            if mode.unforgiving and len(args) > 2:
+                raise prim.TMAError(4+len(args),4,atmost=True)
+            try:
+                rows = int(args[0])
+                cols = int(args[1])
+                if rows >= MINROWS and cols >= MINCOLS:
+                    (self.termrows, self.termcols) = (rows, cols)
+                else:
+                    raise ValueError
+            except (ValueError, IndexError):
+                raise primError(False, "invalid screen size")
+        else:
+            assert False
+    
+    def gettype(self):
+        if self.contype == 'v':
+            return self.contype+','+str(self.termrows)+','+str(self.termcols)
+        else:
+            assert self.contype == 'x'
+            return self.contype
     
     def adjustcarriage(self,t):
         p = t.split('\n')
@@ -726,16 +777,16 @@ class xConsole(TracConsole):
             and hit enter; it prints a blank line, unlike hitting enter at the very end of
             the line
         """
+        global rshistory
         mc = metachar.get()
         self.histpointer = None
         #handle arguments to RS
-        if mode.extended:
+        if mode.extended and len(args) > 0:
             if mode.unforgiving and len(args) > 2:
                 prim.TMAError( len(args), 2, atmost=True )
+            startstr = args[0]
             if len(args) < 2: startpoint = ''
             else: startpoint = args[1]
-            if len(args) < 1: startstr = ''
-            else: startstr = args[0]
             (startnum, dummy, sign) = mathprim.parsenum(startpoint)
             if sign == '-':
                 startnum += len(startstr)
@@ -801,7 +852,7 @@ class xConsole(TracConsole):
                     self.adjustcarriage(head + mc)   #remember, mc could be \n
                     self.inp.rstring = head
                     self.inp.redolengths()
-                    self.history.append(self.inp)
+                    rshistory.append(head)
                     return head
                 tail = self.inp.rstring[self.inp.inspoint:]
                 self.inp.rstring = head + ch + tail
@@ -849,9 +900,7 @@ class xConsole(TracConsole):
     
     def dohist(self, dir):
         if self.histpointer == None:    #set up history
-            self.histcopy = []
-            for x in self.history:
-                self.histcopy.append(x.copy())
+            self.histcopy = map( lambda x: InputString(x,len(x)), rshistory)
             self.histpointer = len(self.histcopy)
             self.histcopy.append(self.inp)
         if dir == 'b':       #move back
@@ -1330,10 +1379,10 @@ class mode:     # for MO
             return
         if modearg == 'rt': #reactive typewriter
             if len(args) == 1:
-                return tc.contype
+                return tc.gettype()
             else:
                 assert len(args) > 1
-                mode.setcontype(args[1].lower())
+                mode.setcontype(args[1].lower(),*args[2:])
                 return
         if modearg == 'e':
             if len(args) == 1:
@@ -1362,21 +1411,22 @@ class mode:     # for MO
         raise primError(False, 'unrecognized mode: ', modearg)
     
     @staticmethod
-    def setcontype(c):
-        global tc
-        if c not in condict:
+    def setcontype(*args):
+        global tc, condict, contypes
+#        print('setcontype: c=',c,' args= ',args)
+        c = args[0]
+        oldtc = tc
+        try:
+            tc = condict[c]
+            if tc == None:  #need to instantiate
+                tc = condict[c] = contypes[c](*args)
+            else:   # the console is already instantiated
+                tc.settype(*args) #because xConsole handles both x and v
+        except KeyError:
             raise primError(False, 'unrecognized console type: ', c)
-        tc = condict[c]
-        if tc == None:
-            if c == 'b':
-                tc = condict['b'] = BasicConsole()
-            elif c == 'l':
-                tc = condict['l'] = LineConsole()
-            elif c == 'x':
-                tc = condict['x'] = xConsole()
-            else:
-                assert False
-        assert c == tc.contype
+        except primError:
+            tc = oldtc
+            raise
     
 def trace(*args):       # a flag, used in TN and TF
     global tracing
@@ -1701,10 +1751,13 @@ prim( 'mo', mode.setmode )
 
 def main(args):
     global syntchar, forms, metachar, activeImpliedCall, tracing
-    global getraw, condict, tc
+    global getraw, condict, contypes, tc, rshistory
     getraw = _Getch()
-    condict = dict(b=None, l=None, x=None)
+    condict = dict(b=None, l=None, v= None, x=None)
+    contypes = dict(b=BasicConsole, l=LineConsole, v=xConsole, x=xConsole)
+    tc = None   # because setcontype saves this for error recovery
     mode.setcontype('x' if _Getch.the_os == 'u' else 'b')  #default if console type by OS
+    rshistory = []
     forms = {}      # the defined strings
     syntchar = syntclass('#')
     metachar = specchar("'")
@@ -1728,6 +1781,8 @@ def psrs():     # the main loop
         except tracError as e:
             if mode.unforgiving or e.args[0]:
                 print( str(e) )
+            else:
+                print( '' )
         except termError as e:
             print( str(e) )
         except KeyboardInterrupt:   # ^C or non-empty input while trace on
