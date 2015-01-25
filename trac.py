@@ -666,16 +666,21 @@ class xConsole(TracConsole):
 
     def __init__(self, *args):
         (self.termrows, self.termcols) = (DEFROWS, DEFCOLS)
-        self.carriagepos = 0    #self.carriagepos is needed for the history scrollback
+        self.carriagepos = 0
         TracConsole.__init__(self, *args)
     
     def settype(self, type, *args):
         self.contype = type
+        self.trylocpoll = True
         if type == 'x':
+            self.trysizepoll = True
+            self.trysizeenv = False # 2nd option
             if mode.unforgiving and len(args) > 0:
                 raise prim.TMAError(2+len(args),2)
             return
         elif type == 'v':
+            self.trysizepoll = False
+            self.trysizeenv = False # 2nd option
             if len(args) == 0: return
             if mode.unforgiving and len(args) > 2:
                 raise prim.TMAError(4+len(args),4,atmost=True)
@@ -711,11 +716,19 @@ class xConsole(TracConsole):
     
     def getcoords(self, term, *args):
         """this is a utility function to input the results of screen-polling
-        escape sequences"""
-        ch = getraw()
-        while ch != ESC:
-            self.inbuf += ch
+        escape sequences.
+        If it takes > 50 msec to get to ESC, we conclude that screen-polling
+        is not working."""
+        import time
+        time0 = time.time()
+        while True:
             ch = getraw()
+            if (time.time() - time0) <= 0.05:
+                if ch == ESC: break
+                self.inbuf += ch
+            else:
+                self.inbuf += ch
+                return (None, None)
         seq = self.geteseq()
         start = ['['] + list(args)
         while len(start) > 0:
@@ -996,7 +1009,8 @@ class InputString(object):
     tc.carriagepos is the position within the current "line". It is set by PS, 
         and at the END of RS
     """
-    
+    import re
+    ansire = re.compile('(\d+)x(\d+)\s*\((\d+)x(\d+)\)\Z')  #wxh(WxH)
     def __init__(self, str, point):
         self.rstring = str
         self.inspoint = point
@@ -1027,13 +1041,18 @@ class InputString(object):
         rd = 0
         for self.line in range(len(self.linelengths)):
             ll = self.linelengths[self.line]
+            self.colloc = self.pos % self.numcols + 1
             if self.pos == 0 or self.pos < ll:    #not hanging, for sure
                 self.rowsdown = rd + self.pos // self.numcols
                 self.hanging = False
                 return
             if self.pos == ll:  #hanging, if numcols goes into chars evenly
                 self.rowsdown = rd + (self.pos-1) // self.numcols
-                self.hanging = (self.pos % self.numcols) == 0
+                if self.colloc == 1:
+                    self.hanging = True
+                    self.colloc = self.numcols
+                else:
+                    self.hanging = False
                 return
             self.pos -= (ll + 1)       # count 1 for the \n
             rd += max(0, ll-1) // self.numcols + 1           # same here
@@ -1062,26 +1081,25 @@ class InputString(object):
             current screen cursor position corresponds to 'point'
         """
         if reusesize == None:
-            (self.numrows, self.numcols) = self.getscrsize()
-        self.posfrompoint(point)
-        (self.rowloc, self.colloc) = self.getscrloc()
-        self.validatecursor()
+            self.refreshsize()
+        self.posfrompoint(point)    # depends on self.numcols
+        self.refreshloc()           # gets rowloc, if available
     
     def curatinspoint(self):
         self.cursorisat(self.inspoint)
     
-    def validatecursor(self):
-        # validate the cursor location
-        shouldbe = self.pos % self.numcols + 1
-        if not self.hanging and shouldbe == self.colloc:
-            return
-        if self.hanging and (self.colloc == self.numcols) and \
-                (self.pos == self.linelengths[self.line]):  #hanging?
-            return
-        else:
-            raise termError("Alignment error: rowloc=", self.rowloc,'colloc=', \
-                self.colloc, 'shouldbe=', shouldbe, 'posnow=', self.pos, \
-                'line=', self.line)
+#     def validatecursor(self):
+#         # validate the cursor location
+#         shouldbe = self.pos % self.numcols + 1
+#         if not self.hanging and shouldbe == self.colloc:
+#             return
+#         if self.hanging and (self.colloc == self.numcols) and \
+#                 (self.pos == self.linelengths[self.line]):  #hanging?
+#             return
+#         else:
+#             raise termError("Alignment error: rowloc=", self.rowloc,'colloc=', \
+#                 self.colloc, 'shouldbe=', shouldbe, 'posnow=', self.pos, \
+#                 'line=', self.line)
 
     def cursorto(self, newpoint):
         """
@@ -1093,24 +1111,34 @@ class InputString(object):
         fromrow = self.rowloc
         rowsup = self.rowsdown
         self.posfrompoint(newpoint)
-        self.rowloc += self.rowsdown - rowsup
-        if self.rowloc <= 0:
-            #TODO this should not be termError? those should only be for things that
-            raise termError("<ERR> New cursor position is off the top of the screen")
-        self.colloc = self.pos % self.numcols + 1
-        if self.hanging:
-            assert self.colloc == 1
-            #self.bell() #TODO remove after debugging
-            self.colloc = self.numcols
-        self.setscrloc()
-        self.validatecursor()   #this is new 1/11/15
+        rowdelta = self.rowsdown - rowsup
+        if self.rowloc != None:
+            self.rowloc += rowdelta
+            if self.rowloc <= 0:
+                #TODO this should not be termError? those should only be for things that
+                raise termError("<ERR> New cursor position is off the top of the screen")
+        self.scrgoto(rowdelta,self.colloc)
+        #what follows is solely for validation
+        shouldbe = self.rowloc
+        self.refreshloc()
+        if self.rowloc != shouldbe:
+            raise termError('Row alignment error: rowloc=', shouldbe, \
+                ' but actually is ', self.rowloc, 'pos=', self.pos, \
+                'line=', self.line)
         return
     
     def curtoinspoint(self):
         self.cursorto(self.inspoint)
     
-    def setscrloc(self):
-        print(ESC + '[' + str(self.rowloc) + ';' + str(self.colloc) + 'H', end='')
+#     def setscrloc(self):
+#         print(ESC + '[' + str(self.rowloc) + ';' + str(self.colloc) + 'H', end='')
+        
+    def scrgoto(self, delta, col):
+        if delta < 0:
+            print(ESC + '[' + str(-delta) + 'A', end='')
+        elif delta > 0:
+            print(ESC + '[' + str(delta) + 'B', end='')
+        print(ESC + '[' + str(col) + 'G', end='')
     
     def eprint(self, s):
         """erase to end of screen. eprint is used (a) when inserting the meta 
@@ -1125,18 +1153,55 @@ class InputString(object):
             print('\n',end='')
             if s == '':
                 print(ESC+'[J', end='')
-                self.setscrloc()
+                self.scrgoto(-1, self.numcols)  # go back up
                 return
             if s[0] == '\n': start = 1
         print(ESC+'[J'+s[start:], end='')
     
-    def getscrsize(self):
-        print(ESC + '[1 8t', end='')
-        return tc.getcoords('t','8',';')
+    def refreshsize(self):
+        self.numrows = None
+        if tc.trysizepoll:
+            print(ESC + '[1 8t', end='')
+            (self.numrows, self.numcols) = tc.getcoords('t','8',';')
+            if self.numrows == None:
+                tc.trysizepoll = False    #don't bother a 2nd time
+                tc.trysizeenv = True      #2nd choice
+        if tc.trysizeenv:
+            e = os.getenv('ANSICON')
+            if e == None:
+                tc.trysizeenv = False
+            else:
+                m = ansire.match(e)
+                if m == None:
+                    raise termError('ANSICON misformatted: ',e)
+                self.numcols = m.group(3)   #WxH
+                self.numrows = m.group(4)
+        if self.numrows == None:    #fail x 2
+            tc.contype = 'v'    #drop to vt100 mode, if not there already
+            assert tc.trysizepoll == False
+            assert tc.trysizeenv == False
+            (self.numrows, self.numcols) = (tc.termrows, tc.termcols)
     
-    def getscrloc(self):
-        print(ESC + '[6n', end='')
-        return tc.getcoords('R')
+    def refreshloc(self):
+        if tc.trylocpoll:
+            print(ESC + '[6n', end='')
+            (self.rowloc, cl) =  tc.getcoords('R')
+            if cl == None:  #couldn't get from poll
+                tc.trylocpoll = False
+            elif self.colloc != cl:
+                raise termError('Column alignment error: colloc=', \
+                    self.colloc, ' but actually is ', cl, 'pos=', self.pos, \
+                    'line=', self.line)
+        else:
+            self.rowloc = None
+    
+#     def getscrsize(self):
+#         print(ESC + '[1 8t', end='')
+#         return tc.getcoords('t','8',';')
+#     
+#     def getscrloc(self):
+#         print(ESC + '[6n', end='')
+#         return tc.getcoords('R')
     
     def charleft(self):
         if self.inspoint == 0:
