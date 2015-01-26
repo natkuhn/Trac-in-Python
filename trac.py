@@ -106,6 +106,12 @@ Nat Kuhn (NSK, nk@natkuhn.com)
         TODO: set arithmetic and esp. boolean radix
         TODO: test for ^C while in a loop
         MAYBE: paren matching? really? these kids today are soft!
+        DOING: implement theOS class with ourOS instance for:   
+            a. getch
+            b. cygwin change os.linesep
+            c. process keypresses win vs posix
+        MAYBE: move numrows, numcols from InputString to xConsole
+        MAYBE: change class names to caps
         
 """
 # v1.1 implements new RS with left-right cursor keys
@@ -145,51 +151,6 @@ import re
 import sys
 import cPickle as pickle                # for SB and FB
 import os                               # for EB
-
-# these _Getch are for single-character reading; the original code is from 
-# http://code.activestate.com/recipes/134892/
-# modified for keyboard polling as documented here: http://stackoverflow.com/questions/27750135/
-# I didn't know exactly how to do this in Carbon and it seems safe in 2015
-# to delete the carbon stuff
-
-class _Getch:
-    """Gets a single character from standard input.  Does not echo to the
-screen."""
-    the_os = ''
-    def __init__(self):
-        try:
-            self.impl = _GetchWindows()
-            _Getch.the_os = 'w'    #Windows
-        except ImportError:
-            self.impl = _GetchUnix()
-            _Getch.the_os = 'u'    #Unix / MacOS Aqua
-
-    def __call__(self): return self.impl()
-    
-class _GetchUnix:
-    def __init__(self):
-        import tty, sys, termios # import termios now or else you'll get the Unix version on the Mac
-
-    def __call__(self):
-        import sys, tty, termios, fcntl, os
-        fd = sys.stdin.fileno()
-        old_attr = termios.tcgetattr(fd)
-        try:
-            tty.setraw(fd)
-            ch = sys.stdin.read(1)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_attr)
-        return ch
-    
-class _GetchWindows:
-    def __init__(self):
-        import msvcrt
-
-    def __call__(self):
-        import msvcrt
-        return msvcrt.getch()
-    
-# and now back to NSK code for the Trac Processor
 
 class form:
     """a 'form' is a 'defined string.' It is stored as a list; each element in 
@@ -544,11 +505,12 @@ class TracConsole(object):
             prim.TMAError(1+len(args), 2)
     
     def inkey(self):
+        global ourOS
         if self.inbuf:
             ch = self.inbuf[0]
             self.inbuf = self.inbuf[1:]
         else:
-            ch = getraw()
+            ch = ourOS.getraw()
         code = ord(ch)
         if code == 3: 
             raise KeyboardInterrupt     # ^C
@@ -655,13 +617,13 @@ class LineConsole(TracConsole):
             else:
                 string += ch
 
-DEFROWS = 24
+DEFROWS = 24    #TODO: move into xConsole as class vbls
 DEFCOLS = 80
 MINROWS = 4
 MINCOLS = 10
 
 class xConsole(TracConsole):
-    global ESC, DEFROWS, DEFCOLS, MINROWS, MINCOLS
+    global ESC, DEFROWS, DEFCOLS, MINROWS, MINCOLS, ourOS
     ESC = chr(27)
 
     def __init__(self, *args):
@@ -721,7 +683,7 @@ class xConsole(TracConsole):
         import time
         time0 = time.time()
         while True:
-            ch = getraw()
+            ch = ourOS.getraw()
             if (time.time() - time0) <= 0.05:
                 if ch == ESC: break
                 self.inbuf += ch
@@ -759,7 +721,7 @@ class xConsole(TracConsole):
                     
         seqlist = []
         while True:
-            ch = getraw()
+            ch = ourOS.getraw()
             code = ord(ch)
             seqlist.append(ch)
             if len(seqlist) == 1:
@@ -1789,10 +1751,68 @@ prim( 'hl', tracHalt, exact=0 )
 
 prim( 'mo', mode.setmode )
 
+class TheOS:
+    """OS-dependent stuff goes here.
+    The code for getraw() comes from:
+    http://code.activestate.com/recipes/134892/
+    and screen-polling code for the future can be found at:
+    http://stackoverflow.com/questions/27750135/
+    """
+    @staticmethod
+    def whichOS:
+        """note that this method is fixed at compile time; for a runtime-
+        based method, or for the origin of this code, see:
+        http://stackoverflow.com/questions/4553129/when-to-use-os-name-sys-platform-or-platform-system
+        """
+        if os.name == 'nt':
+            return WindowsOS()
+        elif os.name == 'posix':
+            if sys.platform == 'cygwin':
+                return CygwinOS()
+            else:
+                return PosixOS()
+        else:
+            print('Unrecognized OS:',os.name)
+            return UnknownOS()
+    
+class WindowsOS(TheOS):
+    def getraw(self):
+        import msvcrt
+        return msvcrt.getch()
+    
+    def defaultterm(self):
+        return 'b'
+
+class PosixOS(TheOS):
+    def getraw(self):
+        import sys, tty, termios, fcntl, os
+        fd = sys.stdin.fileno()
+        old_attr = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_attr)
+        return ch
+    
+    def defaultterm(self):
+        return 'x'
+
+class CygwinOS(PosixOS):
+    def __init__(self):
+        # linesep code here
+        pass
+    
+class UnknownOS(TheOS):
+    #TODO add getraw method to reset to line-mode
+    def defaultterm(self):
+        return 'l'
+
 def main(args):
     global syntchar, forms, metachar, activeImpliedCall, tracing
-    global getraw, condict, contypes, tc, rshistory
-    getraw = _Getch()
+    global ourOS, condict, contypes, tc, rshistory
+    ourOS = TheOS.whichOS()
+#    getraw = _Getch()
     condict = dict(b=None, l=None, v= None, x=None)
     contypes = dict(b=BasicConsole, l=LineConsole, v=xConsole, x=xConsole)
     rshistory = []
@@ -1807,8 +1827,8 @@ def main(args):
             mode.setmode( *(x[4:].split(',')) )
         else:
             print('Error: unrecognized paramater (',x,')')
-    if tc == None:  #default if console type by OS
-        mode.setcontype('x' if _Getch.the_os == 'u' else 'b')
+    if tc == None:  #default console type by OS, if not set by switches
+        mode.setcontype(ourOS.defaultterm())
     psrs()
 
 def psrs():     # the main loop
