@@ -697,11 +697,10 @@ class xConsole(TracConsole):
             assert False
     
     def gettype(self):
-        if self.contype == 'v':
-            return self.contype+','+str(self.termrows)+','+str(self.termcols)
-        else:
-            assert self.contype == 'x'
-            return self.contype
+        dummystr = InputString('',0)
+        dummystr.refreshsize()
+        return self.contype + ',' + str(dummystr.numrows) + ',' + \
+            str(dummystr.numcols)
     
     def adjustcarriage(self,t):
         p = t.split('\n')
@@ -1011,6 +1010,7 @@ class InputString(object):
     """
     import re
     ansire = re.compile('(\d+)x(\d+)\s*\((\d+)x(\d+)\)\Z')  #wxh(WxH)
+    
     def __init__(self, str, point):
         self.rstring = str
         self.inspoint = point
@@ -1088,19 +1088,6 @@ class InputString(object):
     def curatinspoint(self):
         self.cursorisat(self.inspoint)
     
-#     def validatecursor(self):
-#         # validate the cursor location
-#         shouldbe = self.pos % self.numcols + 1
-#         if not self.hanging and shouldbe == self.colloc:
-#             return
-#         if self.hanging and (self.colloc == self.numcols) and \
-#                 (self.pos == self.linelengths[self.line]):  #hanging?
-#             return
-#         else:
-#             raise termError("Alignment error: rowloc=", self.rowloc,'colloc=', \
-#                 self.colloc, 'shouldbe=', shouldbe, 'posnow=', self.pos, \
-#                 'line=', self.line)
-
     def cursorto(self, newpoint):
         """
         cursorto moves the screen cursor from curpoint to 'newpoint'.
@@ -1130,10 +1117,9 @@ class InputString(object):
     def curtoinspoint(self):
         self.cursorto(self.inspoint)
     
-#     def setscrloc(self):
-#         print(ESC + '[' + str(self.rowloc) + ';' + str(self.colloc) + 'H', end='')
-        
     def scrgoto(self, delta, col):
+        # note that using E/F instead of B/A might enable rollback on the 
+        # screen, eliminating the error message in cursorto()
         if delta < 0:
             print(ESC + '[' + str(-delta) + 'A', end='')
         elif delta > 0:
@@ -1194,14 +1180,6 @@ class InputString(object):
                     'line=', self.line)
         else:
             self.rowloc = None
-    
-#     def getscrsize(self):
-#         print(ESC + '[1 8t', end='')
-#         return tc.getcoords('t','8',';')
-#     
-#     def getscrloc(self):
-#         print(ESC + '[6n', end='')
-#         return tc.getcoords('R')
     
     def charleft(self):
         if self.inspoint == 0:
@@ -1817,14 +1795,20 @@ def main(args):
     getraw = _Getch()
     condict = dict(b=None, l=None, v= None, x=None)
     contypes = dict(b=BasicConsole, l=LineConsole, v=xConsole, x=xConsole)
-    tc = None   # because setcontype saves this for error recovery
-    mode.setcontype('x' if _Getch.the_os == 'u' else 'b')  #default if console type by OS
     rshistory = []
     forms = {}      # the defined strings
     syntchar = syntclass('#')
     metachar = specchar("'")
     activeImpliedCall = False   # in case there is a call to NI before an implied call
     trace(False)
+    tc = None   # because setcontype saves this for error recovery
+    for x in args:
+        if len (x)>4 and x[0:4] == '-mo,':
+            mode.setmode( *(x[4:].split(',')) )
+        else:
+            print('Error: unrecognized paramater (',x,')')
+    if tc == None:  #default if console type by OS
+        mode.setcontype('x' if _Getch.the_os == 'u' else 'b')
     psrs()
 
 def psrs():     # the main loop
