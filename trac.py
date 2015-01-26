@@ -685,8 +685,8 @@ class xConsole(TracConsole):
             if mode.unforgiving and len(args) > 2:
                 raise prim.TMAError(4+len(args),4,atmost=True)
             try:
-                rows = int(args[0])
-                cols = int(args[1])
+                cols = int(args[0])
+                rows = int(args[1])
                 if rows >= MINROWS and cols >= MINCOLS:
                     (self.termrows, self.termcols) = (rows, cols)
                 else:
@@ -699,8 +699,8 @@ class xConsole(TracConsole):
     def gettype(self):
         dummystr = InputString('',0)
         dummystr.refreshsize()
-        return self.contype + ',' + str(dummystr.numrows) + ',' + \
-            str(dummystr.numcols)
+        return self.contype + ',' + str(dummystr.numcols) + ',' + \
+            str(dummystr.numrows)
     
     def adjustcarriage(self,t):
         p = t.split('\n')
@@ -1157,7 +1157,7 @@ class InputString(object):
             if e == None:
                 tc.trysizeenv = False
             else:
-                m = ansire.match(e)
+                m = InputString.ansire.match(e)
                 if m == None:
                     raise termError('ANSICON misformatted: ',e)
                 self.numcols = m.group(3)   #WxH
