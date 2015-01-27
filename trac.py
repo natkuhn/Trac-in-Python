@@ -626,6 +626,9 @@ class xConsole(TracConsole):
     MINROWS = 4
     MINCOLS = 10
     
+    BS = 8
+    DEL = 127
+    
     def __init__(self, *args):
         (self.termrows, self.termcols) = (xConsole.DEFROWS, xConsole.DEFCOLS)
         self.carriagepos = 0
@@ -802,49 +805,47 @@ class xConsole(TracConsole):
             self.inp = InputString('',0)
         
         while True:             #RS main loop
-            ch = self.inkey()
+            try:
+                ch = self.inkey()
+            except (KeyboardInterrupt, tracHalt):
+                self.inp.eprint('')
+                raise
             code = ord(ch)
-            if ch == ESC:
-                eseq = self.geteseq()
-                ch = eseq.pop(0)
-                if ch == '[':
-                    if eseq[0] == 'A':                  #up arrow
-                        self.inp.rowup()
-                    elif eseq[0] == 'B':                #down arrow
-                        self.inp.rowdown()
-                    elif eseq[0] == 'D':                #left arrow
-                        self.inp.charleft()
-                    elif eseq == ['1',';','2','D']:     #shift-left arrow
-                        self.inp.rowleft()
-                    elif eseq[0] == 'C':                #right arrow
-                        self.inp.charright()
-                    elif eseq == ['1',';','2','C']:     #shift-right arrow
-                        self.inp.rowright()
-                    elif eseq == ['3','~']:             #delete
-                        if self.inp.inspoint == len(self.inp.rstring):
-                            self.bell() #already at end, nothing to del
-                            continue
-                        self.inp.curatinspoint()
-                        head = self.inp.rstring[0:self.inp.inspoint]
-                        tail = self.inp.rstring[self.inp.inspoint+1:]
-                        self.inp.rstring = head+tail
-                        self.inp.redolengths()
-                        self.inp.eprint(tail)
-                        if self.inp.inspoint == len(self.inp.rstring):
-                            continue        #just deleted last char
-                        self.inp.cursorisat( len(self.inp.rstring) )
-                        self.inp.curtoinspoint()
-                    else:
-                        self.bell()     #unrecognized CSI (=esc-[ sequence)
-                    continue    # sequence starts with [ (i.e. valid CSI) don't want to fall through
-                else:   #eseq doesn't start with [
-                    if ch == 'b' or ch == 'f':                       #alt-left arrow
-                        self.dohist(ch)
-                        continue
-                    self.bell()     #better late than never
-                    code = ord(ch)  #and now fall through to code below with next character
-            if code == 13: ch = '\n'    # warning: ch and code won't match after this point, OK?
-            if (code >= 32 and code < 127) or ch == '\n':   #printable
+            if (code < 32 or code >=127) and ch != '\n':
+                code = ourOS.rsctrl(self.inp, code)
+                if code == None:    #nothing more to process
+                    continue
+            if code == xConsole.BS: # backspace
+                if self.inp.inspoint == 0:
+                    self.bell()
+                    continue
+                self.inp.curatinspoint()
+                tail = self.inp.rstring[self.inp.inspoint:]
+                self.inp.inspoint -= 1
+                head = self.inp.rstring[0:self.inp.inspoint]
+                self.inp.rstring = head+tail
+                self.inp.redolengths()
+                self.inp.curtoinspoint()
+                self.inp.eprint(tail)
+                if self.inp.inspoint == len(self.inp.rstring):
+                    continue        #already in the right place
+                self.inp.cursorisat(len(self.inp.rstring) )
+                self.inp.curtoinspoint()
+            elif code == xConsole.DEL:
+                if self.inp.inspoint == len(self.inp.rstring):
+                    self.bell() #already at end, nothing to del
+                    continue
+                self.inp.curatinspoint()
+                head = self.inp.rstring[0:self.inp.inspoint]
+                tail = self.inp.rstring[self.inp.inspoint+1:]
+                self.inp.rstring = head+tail
+                self.inp.redolengths()
+                self.inp.eprint(tail)
+                if self.inp.inspoint == len(self.inp.rstring):
+                    continue        #just deleted last char
+                self.inp.cursorisat( len(self.inp.rstring) )
+                self.inp.curtoinspoint()
+            else:   #printable or \n
                 self.inp.curatinspoint()
                 head = self.inp.rstring[0:self.inp.inspoint]
                 if ch == mc:    #meta: delete the rest and return the head
@@ -869,35 +870,8 @@ class xConsole(TracConsole):
                     continue        #already in the right place
                 self.inp.cursorisat( len(self.inp.rstring) )
                 self.inp.curtoinspoint()
-                continue
-            elif code == 127: # backspace
-                if self.inp.inspoint == 0:
-                    self.bell()
-                    continue
-                self.inp.curatinspoint()
-                tail = self.inp.rstring[self.inp.inspoint:]
-                self.inp.inspoint -= 1
-                head = self.inp.rstring[0:self.inp.inspoint]
-                self.inp.rstring = head+tail
-                self.inp.redolengths()
-                self.inp.curtoinspoint()
-                self.inp.eprint(tail)
-                if self.inp.inspoint == len(self.inp.rstring):
-                    continue        #already in the right place
-                self.inp.cursorisat(len(self.inp.rstring) )
-                self.inp.curtoinspoint()
-                continue
-            elif code == 3: # ^C
-                self.inp.curatinspoint()
-                self.inp.eprint('')
-                raise KeyboardInterrupt
-            elif code == 4:
-                self.inp.curatinspoint()
-                self.inp.eprint('')
-                raise tracHalt
-            else:               #unrecognized, probably unicode sequence
-                self.bell()     # end of RS main loop
-    
+        # end of RS main loop
+        
     def dohist(self, dir):
         if self.histpointer == None:    #set up history
             self.histcopy = map( lambda x: InputString(x,len(x)), rshistory)
@@ -922,9 +896,6 @@ class xConsole(TracConsole):
         
         #now need to show the new self.inp
         newinp = self.histcopy[self.histpointer]
-        #newinp.redolengths()
-#         newinp.numrows = self.inp.numrows
-#         newinp.numcols = self.inp.numcols
         self.refreshsize()
         newinp.cursorisat(0)
         newinp.eprint(newinp.rstring)
@@ -1225,7 +1196,7 @@ class InputString(object):
     
     def rowleft(self):    #move cursor back to start of row
         self.curatinspoint()
-        if self.colloc == 1:     #already there?
+        if self.colloc == 1 or self.pos == 0:     #already there?
             tc.bell()
             return
         self.inspoint -= self.colloc - (1 if not self.hanging else 0)
@@ -1789,6 +1760,44 @@ class WindowsOS(TheOS):
     
     def defaultterm(self):
         return 'b'
+    
+    def rsctrl(self, inp, code):
+        if code == 8:
+            return xConsole.BS
+        if code == 127:         # TODO check this
+            return xConsole.DEL
+        if code == 224:      # alpha
+            ch = tc.inkey
+            if ch == 'H':                  #up arrow
+                inp.rowup()
+            elif ch == 'P':                #down arrow
+                inp.rowdown()
+            elif ch == 'K':                #left arrow
+                inp.charleft()
+            elif ch == 'M':                #right arrow
+                inp.charright()
+            elif ch == 'S':                #right arrow
+                return xConsole.DEL # at least for fn-delete on VMWare
+            else:
+                tc.bell()     #for the alpha, better late than never
+                tc.inbuf = ch + tc.inbuf    # reprocess the character
+        elif code == 0:     # NUL
+            ch = tc.inkey
+            code = ord(ch)
+            if code == 155:         #alt-left arrow
+                inp.rowleft()
+            elif code == 157:       #alt-right arrow
+                inp.rowright()
+            elif code == 152:       #alt-up arrow
+                tc.dohist('b')
+            elif code == 160:       #alt-down arrow
+                tc.dohist('f')
+            else:
+                tc.bell()     #for the alpha, better late than never
+                tc.inbuf = ch + tc.inbuf    # reprocess the character
+        else:
+            tc.bell()
+        #eqivalent to "return None"
 
 class PosixOS(TheOS):
     def getraw(self):
@@ -1804,6 +1813,37 @@ class PosixOS(TheOS):
     
     def defaultterm(self):
         return 'x'
+    
+    def rsctrl(self, inp, code):
+        if code == 127:
+            return xConsole.BS
+        if code == 27:      #ESC
+            eseq = tc.geteseq()
+            ch = eseq.pop(0)
+            if ch == '[':
+                if eseq[0] == 'A':                  #up arrow
+                    inp.rowup()
+                elif eseq[0] == 'B':                #down arrow
+                    inp.rowdown()
+                elif eseq[0] == 'D':                #left arrow
+                    inp.charleft()
+                elif eseq == ['1',';','2','D']:     #shift-left arrow
+                    inp.rowleft()
+                elif eseq[0] == 'C':                #right arrow
+                    inp.charright()
+                elif eseq == ['1',';','2','C']:     #shift-right arrow
+                    inp.rowright()
+                elif eseq == ['3','~']:             #delete
+                    return xConsole.DEL
+                else:
+                    self.bell()     #unrecognized CSI (=esc-[ sequence)
+            else:   #eseq doesn't start with [
+                if ch == 'b' or ch == 'f':                       #alt-left arrow
+                    tc.dohist(ch)
+                else:
+                    tc.bell()     #for the ESC, better late than never
+                    tc.inbuf = ch + tc.inbuf    # reprocess the character
+        #eqivalent to "return None"
 
 class CygwinOS(PosixOS):
     def __init__(self):
