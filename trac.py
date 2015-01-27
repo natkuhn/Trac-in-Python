@@ -267,32 +267,32 @@ class form:
             if c.pointer >= 0: activecount += 1
             if isinstance(c, textchunk):
                 if previstext:
-                    print('Invalid form: consecutive text chunks in', self.name, \
+                    ourOS.print_('Invalid form: consecutive text chunks in', self.name, \
                         ':',c.text,'and previous')
                     invalid = True
                 previstext = True
                 if (c.text) == '':
-                    print('Invalid form: null text chunk in',self.name)
+                    ourOS.print_('Invalid form: null text chunk in',self.name)
                     invalid = True
                 if c.pointer >= len(c.text) or c.pointer <-1:
-                    print('Invalid pointer (',c.pointer,') in text chunk',c.text)
+                    ourOS.print_('Invalid pointer (',c.pointer,') in text chunk',c.text)
                     invalid = True
                 continue
             previstext = False  #segment gap or end
             if c.pointer < -1 or c.pointer > 0:
-                    print('Invalid pointer (',c.pointer,') in gapchunk or endchunk')
+                    ourOS.print_('Invalid pointer (',c.pointer,') in gapchunk or endchunk')
                     invalid = True
             if isinstance(c, endchunk): endcount+=1
         if activecount != 1:
-            print('Invalid form:',activecount,'active chunks in',self.name)
+            ourOS.print_('Invalid form:',activecount,'active chunks in',self.name)
             invalid = True
         if endcount != 1:
-            print('Invalid form: endcount (',endcount,') is illegal in',self.name)
+            ourOS.print_('Invalid form: endcount (',endcount,') is illegal in',self.name)
             invalid = True
         if not isinstance(self.formlist[len(self.formlist)-1], endchunk):
-            print('Invalid form: endchunk not at end of',self.name)
+            ourOS.print_('Invalid form: endchunk not at end of',self.name)
             invalid = True
-        if invalid: print('Invalid form',self.name, ': [', *self.formlist)
+        if invalid: ourOS.print_('Invalid form',self.name, ': [', *self.formlist)
         
     def __str__(self):  # used in PF, so the str functions put in the form pointer as <^>
         return ''.join(map(str, self.formlist))
@@ -528,11 +528,11 @@ class TracConsole(object):
         return ch
     
     def bell(self):
-        print( chr(7), end='')
+        ourOS.print_( chr(7), end='')
         return
     
     def printstr(self,text):
-        print(text, end='')
+        ourOS.print_(text, end='')
         return
 
 class BasicConsole(TracConsole):
@@ -571,18 +571,18 @@ class BasicConsole(TracConsole):
                 # print a space over the character immediately preceding the cursor
                 # but we can't backspace over newlines
                 if string[-1] == '\n' and not echoing:
-                    print('\\',end='')
+                    ourOS.print_('\\',end='')
                     echoing = True
-                print(string[-1] if echoing else '\b \b',end='')
+                ourOS.print_(string[-1] if echoing else '\b \b',end='')
                 string = string[:-1]
                 if string == '' and echoing:
-                    print('\\',end='')
+                    ourOS.print_('\\',end='')
                     echoing = False
             else:   #anything else
                 if echoing:
-                    print('\\',end='')
+                    ourOS.print_('\\',end='')
                     echoing = False
-                print(ch, end='')
+                ourOS.print_(ch, end='')
                 if ch == mc:
                     rshistory.append(string)
                     return string
@@ -687,7 +687,7 @@ class xConsole(TracConsole):
             return
         self.numrows = None
         if self.trysizepoll:
-            print(ESC + '[1 8t', end='')
+            ourOS.print_(ESC + '[1 8t', end='')
             (self.numrows, self.numcols) = self.getcoords('t','8',';')
             if self.numrows == None:
                 self.trysizepoll = False    #don't bother a 2nd time
@@ -800,7 +800,7 @@ class xConsole(TracConsole):
             if startnum < 0: startnum = 0
             startnum = min(startnum, len(startstr) )
             self.inp = InputString(startstr, startnum)
-            print(startstr, end='')
+            ourOS.print_(startstr, end='')
             self.refreshize()
             self.inp.cursorisat( len(startstr) )
             self.inp.curtoinspoint()
@@ -983,6 +983,8 @@ class InputString(object):
         self.rstring = str
         self.inspoint = point
         self.redolengths()
+        self.posfrompoint(point)    #initialize self.hanging, so hitting
+            # ^C or ^D as first input char doesn't generate exception
     
     def copy(self):
         cop = InputString(self.rstring, self.inspoint)
@@ -1090,10 +1092,10 @@ class InputString(object):
         # note that using E/F instead of B/A might enable rollback on the 
         # screen, eliminating the error message in cursorto()
         if delta < 0:
-            print(ESC + '[' + str(-delta) + 'A', end='')
+            ourOS.print_(ESC + '[' + str(-delta) + 'A', end='')
         elif delta > 0:
-            print(ESC + '[' + str(delta) + 'B', end='')
-        print(ESC + '[' + str(col) + 'G', end='')
+            ourOS.print_(ESC + '[' + str(delta) + 'B', end='')
+        ourOS.print_(ESC + '[' + str(col) + 'G', end='')
     
     def eprint(self, s):
         """erase to end of screen. eprint is used (a) when inserting the meta 
@@ -1105,17 +1107,17 @@ class InputString(object):
             if self.rowloc == tc.numrows:   #last character on screen
                 if s == '': return
                 self.rowloc -= 1  #the screen will roll up 1
-            print('\n',end='')
+            ourOS.print_('\n',end='')
             if s == '':
-                print(ESC+'[J', end='')
+                ourOS.print_(ESC+'[J', end='')
                 self.scrgoto(-1, tc.numcols)  # go back up
                 return
             if s[0] == '\n': start = 1
-        print(ESC+'[J'+s[start:], end='')
+        ourOS.print_(ESC+'[J'+s[start:], end='')
     
     def refreshloc(self):
         if tc.trylocpoll:
-            print(ESC + '[6n', end='')
+            ourOS.print_(ESC + '[6n', end='')
             (self.rowloc, cl) =  tc.getcoords('R')
             if cl == None:  #couldn't get from poll
                 tc.trylocpoll = False
@@ -1358,7 +1360,7 @@ class mode:     # for MO
             syntchar.set( '' if len(args) == 1 else args[1], metachar.get() )
             return
         if modearg == 'pm':
-            print('<MO>: ' + ('' if mode.extended else 'no ') + \
+            ourOS.print_('<MO>: ' + ('' if mode.extended else 'no ') + \
                 'extended primitives; ' + ('un' if mode.unforgiving else '') \
                 + 'forgiving with errors.', end='')
             return
@@ -1398,7 +1400,7 @@ class mode:     # for MO
     @staticmethod
     def setcontype(*args):
         global tc, condict, contypes
-#        print('setcontype: c=',c,' args= ',args)
+#        ourOS.print_('setcontype: c=',c,' args= ',args)
         c = args[0]
         oldtc = tc
         try:
@@ -1629,10 +1631,10 @@ def eval(arglist, act):     # when a function call is assembled by the parser, t
     global activeImpliedCall
     if trace():
         s = syntchar.get()
-        print(s+'/' if act else s+s+'/',arglist[0],end=' ')
+        ourOS.print_(s+'/' if act else s+s+'/',arglist[0],end=' ')
         for a in arglist[1:]:
-            print('*',a,end=' ')
-        print('/',end=' ')
+            ourOS.print_('*',a,end=' ')
+        ourOS.print_('/',end=' ')
         input = sys.stdin.readline()
         if input != '\n':
             trace(False)
@@ -1724,7 +1726,7 @@ prim( 'eb', block.erase )
 
 prim( 'ln', ( lambda x: x.join(forms) ), exact=1 )
 
-prim( 'pf', ( lambda x: print(form.find(x)) ), exact=1 )
+prim( 'pf', ( lambda x: ourOS.print_(form.find(x)) ), exact=1 )
 
 prim( 'tn', ( lambda: trace(True) ), exact=0 )
 
@@ -1757,6 +1759,10 @@ class TheOS:
         else:
             print('Unrecognized OS:',os.name)
             return UnknownOS()
+    
+    def print_(self,*args,**kwargs):
+        print(*args,**kwargs)
+        return
     
 class WindowsOS(TheOS):
     def getraw(self):
@@ -1855,6 +1861,10 @@ class CygwinOS(PosixOS):
         # linesep code here
         pass
     
+    def print_(self,*args,**kwargs):
+        PosixOS.print_(self,*map(lambda x: '\r\n'.join(x.split('\n')), args), \
+            **kwargs)
+    
 class UnknownOS(TheOS):
     #TODO add getraw method to reset to line-mode
     def defaultterm(self):
@@ -1890,7 +1900,7 @@ def psrs():     # the main loop
         tc.printstr(strpsrs+'\n> ')
         try:
             remainder = ''.join( parse(strpsrs) )
-            print('')    #blank line
+            ourOS.print_('')    #blank line
             if remainder != '':
                 raise tracError(False, \
                     '<UNF> unbalanced parens: after parsing remainder = ' + remainder)
@@ -1898,15 +1908,15 @@ def psrs():     # the main loop
             return
         except tracError as e:
             if mode.unforgiving or e.args[0]:
-                print( str(e) )
+                ourOS.print_( str(e) )
             else:
-                print( '' )
+                ourOS.print_( '' )
         except termError as e:
-            print( str(e) )
+            ourOS.print_( str(e) )
         except KeyboardInterrupt:   # ^C or non-empty input while trace on
-            print('<INT>')
+            ourOS.print_('<INT>')
         except RuntimeError as e:   # mostly recursion depth exceeding (e.g #(fact,1000) )
-            print( '<SCE>', str(e) )
+            ourOS.print_( '<SCE>', str(e) )
         finally:
             for f in forms: forms[f].validate() # for debugging, OK to comment out
 
