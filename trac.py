@@ -109,9 +109,11 @@ Nat Kuhn (NSK, nk@natkuhn.com)
         DOING: implement theOS class with ourOS instance for:   
             a. getch DONE
             b. cygwin change os.linesep
-            c. process keypresses win vs posix
+            c. process keypresses win vs posix DONE
         DONE: move numrows, numcols from InputString to xConsole
         MAYBE: change class names to caps
+        BUG: ^D in first character of RS generates 'InputString' object
+            has no attribute 'hanging.'
         
 """
 # v1.1 implements new RS with left-right cursor keys
@@ -696,10 +698,13 @@ class xConsole(TracConsole):
                 self.trysizeenv = False
             else:
                 m = InputString.ANSIre.match(e)
-                if m == None:
+                try:
+                    if m == None:
+                        raise ValueError
+                    self.numcols = int(m.group(3))   #WxH
+                    self.numrows = int(aasm.group(4))
+                except ValueError:
                     raise termError('ANSICON misformatted: ',e)
-                self.numcols = m.group(3)   #WxH
-                self.numrows = m.group(4)
         if self.numrows == None:    #fail x 2
             self.contype = 'v'    #drop to vt100 mode, if not there already
             assert self.trysizepoll == False
@@ -1767,7 +1772,7 @@ class WindowsOS(TheOS):
         if code == 127:         # TODO check this
             return xConsole.DEL
         if code == 224:      # alpha
-            ch = tc.inkey
+            ch = tc.inkey()
             if ch == 'H':                  #up arrow
                 inp.rowup()
             elif ch == 'P':                #down arrow
@@ -1782,7 +1787,7 @@ class WindowsOS(TheOS):
                 tc.bell()     #for the alpha, better late than never
                 tc.inbuf = ch + tc.inbuf    # reprocess the character
         elif code == 0:     # NUL
-            ch = tc.inkey
+            ch = tc.inkey()
             code = ord(ch)
             if code == 155:         #alt-left arrow
                 inp.rowleft()
