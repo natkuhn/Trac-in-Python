@@ -460,8 +460,8 @@ class gapchunk(formchunk):
         return ('', False)  #advance to next chunk, not past it
     
     def __str__(self):
-        return ('<^>' if self.pointer == 0 else '') + '<'+str(self.gapno+1)+'>'
         #oops, trac segment gaps are 1-based, not 0-based!
+        return ('<^>' if self.pointer == 0 else '') + '<'+str(self.gapno+1)+'>'
     
 class endchunk(formchunk):
     """this chunk needs to go at the end of every form; when the form pointer 
@@ -482,10 +482,144 @@ class endchunk(formchunk):
     def __str__(self):
         return '<^>' if self.pointer == 0 else ''
 
-class termError(Exception):
-    """this is for unexpected problems with escape sequences"""
-    def __str__(self):
-        return ' '.join(map(str,self.args))
+class TheOS:
+    """OS-dependent stuff goes here.
+    The code for getraw() comes from:
+    http://code.activestate.com/recipes/134892/
+    and screen-polling code for the future can be found at:
+    http://stackoverflow.com/questions/27750135/
+    """
+    @staticmethod
+    def whichOS():
+        """note that this method is fixed at compile time; for a runtime-
+        based method, or for the origin of this code, see:
+        http://stackoverflow.com/questions/4553129/when-to-use-os-name-sys-platform-or-platform-system
+        """
+        if os.name == 'nt':
+            return WindowsOS()
+        elif os.name == 'posix':
+            if sys.platform == 'cygwin':
+                return CygwinOS()
+            else:
+                return PosixOS()
+        else:
+            print('Unrecognized OS:',os.name)
+            return UnknownOS()
+    
+    def print_(self,*args,**kwargs):
+        print(*args,**kwargs)
+        return
+    
+class WindowsOS(TheOS):
+    def getraw(self):
+        import msvcrt
+        return msvcrt.getch()
+    
+    def defaultterm(self):
+        return 'b'
+    
+    def rsctrl(self, inp, code):
+        if code == 8:
+            return xConsole.BS
+        if code == 127:         # TODO check this
+            return xConsole.DEL
+        if code == 224:      # alpha
+            ch = tc.inkey()
+            if ch == 'H':                  #up arrow
+                inp.rowup()
+            elif ch == 'P':                #down arrow
+                inp.rowdown()
+            elif ch == 'K':                #left arrow
+                inp.charleft()
+            elif ch == 'M':                #right arrow
+                inp.charright()
+            elif ch == 'S':                #right arrow
+                return xConsole.DEL # at least for fn-delete on VMWare
+            else:
+                tc.bell()     #for the alpha, better late than never
+                tc.inbuf = ch + tc.inbuf    # reprocess the character
+        elif code == 0:     # NUL
+            ch = tc.inkey()
+            code = ord(ch)
+            if code == 155:         #alt-left arrow
+                inp.rowleft()
+            elif code == 157:       #alt-right arrow
+                inp.rowright()
+            elif code == 152:       #alt-up arrow
+                tc.dohist('b')
+            elif code == 160:       #alt-down arrow
+                tc.dohist('f')
+            else:
+                tc.bell()     #for the alpha, better late than never
+                tc.inbuf = ch + tc.inbuf    # reprocess the character
+        else:
+            tc.bell()
+
+class PosixOS(TheOS):
+    def getraw(self):
+        import sys, tty, termios, fcntl, os
+        fd = sys.stdin.fileno()
+        old_attr = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_attr)
+        return ch
+    
+    def defaultterm(self):
+        return 'x'
+    
+    def rsctrl(self, inp, code):
+        if code == 127:
+            return xConsole.BS
+        if code == 27:      #ESC
+            eseq = tc.geteseq()
+            ch = eseq.pop(0)
+            if ch == '[':
+                if eseq[0] == 'A':                  #up arrow
+                    inp.rowup()
+                elif eseq[0] == 'B':                #down arrow
+                    inp.rowdown()
+                elif eseq[0] == 'D':                #left arrow
+                    inp.charleft()
+                elif eseq == ['1',';','2','D']:     #shift-left arrow
+                    inp.rowleft()
+                elif eseq[0] == 'C':                #right arrow
+                    inp.charright()
+                elif eseq == ['1',';','2','C']:     #shift-right arrow
+                    inp.rowright()
+                elif eseq == ['3','~']:             #delete
+                    return xConsole.DEL
+                else:
+                    self.bell()     #unrecognized CSI (=esc-[ sequence)
+            else:   #eseq doesn't start with [
+                if ch == 'b' or ch == 'f':                       #alt-left arrow
+                    tc.dohist(ch)
+                else:
+                    tc.bell()     #for the ESC, better late than never
+                    tc.inbuf = ch + tc.inbuf    # reprocess the character
+
+class CygwinOS(PosixOS):
+    def __init__(self):
+        # linesep code here
+        pass
+    
+    def print_(self,*args,**kwargs):
+        """this is a workaround for a weird cygwin xterm bug that \n becomes
+        just lf at times when combined with getraw
+        http://stackoverflow.com/questions/28162914/
+        """
+        args = map(lambda x: '\r\n'.join(x.split('\n')), args)
+        if 'end' in kwargs:
+            PosixOS.print_(self, *args, **kwargs)
+        else:
+            PosixOS.print_(self, *args, end='\r\n', **kwargs)
+    
+class UnknownOS(TheOS):
+    #TODO add getraw method to reset to line-mode
+    def defaultterm(self):
+        return 'l'
 
 class TracConsole(object):
     def __init__(self, *args):
@@ -1325,6 +1459,11 @@ class primError(Exception):
     and the message is displayed no matter what."""
     pass
 
+class termError(Exception):
+    """this is for unexpected problems with escape sequences"""
+    def __str__(self):
+        return ' '.join(map(str,self.args))
+
 class SwitchBank:
     def __init__(self,all,ons):
         self.switches = {}
@@ -1705,7 +1844,8 @@ prim( 'ss', ( lambda x, *a: form.find(x).segment(*a) ), minargs=1 )
 prim( 'cl', ( lambda x, *a: form.find(x).val(*a) ), minargs=1 )
 
 # "neutral implied" via C.A.R. Kagan
-prim( 'ni', ( lambda x,y: y if activeImpliedCall else x ), minargs=1, maxargs=2, extended=True )
+prim( 'ni', ( lambda x,y: y if activeImpliedCall else x ), minargs=1, \
+    maxargs=2, extended=True )
 
 prim( 'cr', ( lambda x: form.find(x).resetPointer() ), exact=1 )
 
@@ -1740,8 +1880,8 @@ prim( 'bs', boolprim.shift, exact=2 )
 prim( 'eq', ( lambda x, y, z, w: z if (x==y) else w ), minargs=3, maxargs=4 )
 # don't allow :()more than 4 args, but if fewer, supply null strings
 
-prim( 'gr', ( lambda x, y, z, w: z if ( mathprim.tracint(x) > mathprim.tracint(y) ) \
-    else w ), minargs=3, maxargs=4 )
+prim( 'gr', ( lambda x, y, z, w: z if ( mathprim.tracint(x) > \
+    mathprim.tracint(y) ) else w ), minargs=3, maxargs=4 )
 
 prim( 'sb', block.store )
 
@@ -1760,256 +1900,6 @@ prim( 'tf', ( lambda: trace(False) ), exact=0 )
 prim( 'hl', tracHalt, exact=0 )
 
 prim( 'mo', Mode.setmode )
-
-class TheOS:
-    """OS-dependent stuff goes here.
-    The code for getraw() comes from:
-    http://code.activestate.com/recipes/134892/
-    and screen-polling code for the future can be found at:
-    http://stackoverflow.com/questions/27750135/
-    """
-    @staticmethod
-    def whichOS():
-        """note that this method is fixed at compile time; for a runtime-
-        based method, or for the origin of this code, see:
-        http://stackoverflow.com/questions/4553129/when-to-use-os-name-sys-platform-or-platform-system
-        """
-        if os.name == 'nt':
-            return WindowsOS()
-        elif os.name == 'posix':
-            if sys.platform == 'cygwin':
-                return CygwinOS()
-            else:
-                return PosixOS()
-        else:
-            print('Unrecognized OS:',os.name)
-            return UnknownOS()
-    
-    def print_(self,*args,**kwargs):
-        print(*args,**kwargs)
-        return
-    
-class WindowsOS(TheOS):
-    def getraw(self):
-        import msvcrt
-        return msvcrt.getch()
-    
-    def defaultterm(self):
-        return 'b'
-    
-    def rsctrl(self, inp, code):
-        if code == 8:
-            return xConsole.BS
-        if code == 127:         # TODO check this
-            return xConsole.DEL
-        if code == 224:      # alpha
-            ch = tc.inkey()
-            if ch == 'H':                  #up arrow
-                inp.rowup()
-            elif ch == 'P':                #down arrow
-                inp.rowdown()
-            elif ch == 'K':                #left arrow
-                inp.charleft()
-            elif ch == 'M':                #right arrow
-                inp.charright()
-            elif ch == 'S':                #right arrow
-                return xConsole.DEL # at least for fn-delete on VMWare
-            else:
-                tc.bell()     #for the alpha, better late than never
-                tc.inbuf = ch + tc.inbuf    # reprocess the character
-        elif code == 0:     # NUL
-            ch = tc.inkey()
-            code = ord(ch)
-            if code == 155:         #alt-left arrow
-                inp.rowleft()
-            elif code == 157:       #alt-right arrow
-                inp.rowright()
-            elif code == 152:       #alt-up arrow
-                tc.dohist('b')
-            elif code == 160:       #alt-down arrow
-                tc.dohist('f')
-            else:
-                tc.bell()     #for the alpha, better late than never
-                tc.inbuf = ch + tc.inbuf    # reprocess the character
-        else:
-            tc.bell()
-
-class PosixOS(TheOS):
-    def getraw(self):
-        import sys, tty, termios, fcntl, os
-        fd = sys.stdin.fileno()
-        old_attr = termios.tcgetattr(fd)
-        try:
-            tty.setraw(fd)
-            ch = sys.stdin.read(1)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_attr)
-        return ch
-    
-    def defaultterm(self):
-        return 'x'
-    
-    def rsctrl(self, inp, code):
-        if code == 127:
-            return xConsole.BS
-        if code == 27:      #ESC
-            eseq = tc.geteseq()
-            ch = eseq.pop(0)
-            if ch == '[':
-                if eseq[0] == 'A':                  #up arrow
-                    inp.rowup()
-                elif eseq[0] == 'B':                #down arrow
-                    inp.rowdown()
-                elif eseq[0] == 'D':                #left arrow
-                    inp.charleft()
-                elif eseq == ['1',';','2','D']:     #shift-left arrow
-                    inp.rowleft()
-                elif eseq[0] == 'C':                #right arrow
-                    inp.charright()
-                elif eseq == ['1',';','2','C']:     #shift-right arrow
-                    inp.rowright()
-                elif eseq == ['3','~']:             #delete
-                    return xConsole.DEL
-                else:
-                    self.bell()     #unrecognized CSI (=esc-[ sequence)
-            else:   #eseq doesn't start with [
-                if ch == 'b' or ch == 'f':                       #alt-left arrow
-                    tc.dohist(ch)
-                else:
-                    tc.bell()     #for the ESC, better late than never
-                    tc.inbuf = ch + tc.inbuf    # reprocess the character
-
-class CygwinOS(PosixOS):
-    def __init__(self):
-        # linesep code here
-        pass
-    
-    def print_(self,*args,**kwargs):
-        """this is a workaround for a weird cygwin xterm bug that \n becomes
-        just lf at times when combined with getraw
-        http://stackoverflow.com/questions/28162914/
-        """
-        args = map(lambda x: '\r\n'.join(x.split('\n')), args)
-        if 'end' in kwargs:
-            PosixOS.print_(self, *args, **kwargs)
-        else:
-            PosixOS.print_(self, *args, end='\r\n', **kwargs)
-    
-class UnknownOS(TheOS):
-    #TODO add getraw method to reset to line-mode
-    def defaultterm(self):
-        return 'l'
-
-class WindowsOS(TheOS):
-    def getraw(self):
-        import msvcrt
-        return msvcrt.getch()
-    
-    def defaultterm(self):
-        return 'b'
-    
-    def rsctrl(self, inp, code):
-        if code == 8:
-            return xConsole.BS
-        if code == 127:         # TODO check this
-            return xConsole.DEL
-        if code == 224:      # alpha
-            ch = tc.inkey()
-            if ch == 'H':                  #up arrow
-                inp.rowup()
-            elif ch == 'P':                #down arrow
-                inp.rowdown()
-            elif ch == 'K':                #left arrow
-                inp.charleft()
-            elif ch == 'M':                #right arrow
-                inp.charright()
-            elif ch == 'S':                #right arrow
-                return xConsole.DEL # at least for fn-delete on VMWare
-            else:
-                tc.bell()     #for the alpha, better late than never
-                tc.inbuf = ch + tc.inbuf    # reprocess the character
-        elif code == 0:     # NUL
-            ch = tc.inkey()
-            code = ord(ch)
-            if code == 155:         #alt-left arrow
-                inp.rowleft()
-            elif code == 157:       #alt-right arrow
-                inp.rowright()
-            elif code == 152:       #alt-up arrow
-                tc.dohist('b')
-            elif code == 160:       #alt-down arrow
-                tc.dohist('f')
-            else:
-                tc.bell()     #for the alpha, better late than never
-                tc.inbuf = ch + tc.inbuf    # reprocess the character
-        else:
-            tc.bell()
-
-class PosixOS(TheOS):
-    def getraw(self):
-        import sys, tty, termios, fcntl, os
-        fd = sys.stdin.fileno()
-        old_attr = termios.tcgetattr(fd)
-        try:
-            tty.setraw(fd)
-            ch = sys.stdin.read(1)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_attr)
-        return ch
-    
-    def defaultterm(self):
-        return 'x'
-    
-    def rsctrl(self, inp, code):
-        if code == 127:
-            return xConsole.BS
-        if code == 27:      #ESC
-            eseq = tc.geteseq()
-            ch = eseq.pop(0)
-            if ch == '[':
-                if eseq[0] == 'A':                  #up arrow
-                    inp.rowup()
-                elif eseq[0] == 'B':                #down arrow
-                    inp.rowdown()
-                elif eseq[0] == 'D':                #left arrow
-                    inp.charleft()
-                elif eseq == ['1',';','2','D']:     #shift-left arrow
-                    inp.rowleft()
-                elif eseq[0] == 'C':                #right arrow
-                    inp.charright()
-                elif eseq == ['1',';','2','C']:     #shift-right arrow
-                    inp.rowright()
-                elif eseq == ['3','~']:             #delete
-                    return xConsole.DEL
-                else:
-                    self.bell()     #unrecognized CSI (=esc-[ sequence)
-            else:   #eseq doesn't start with [
-                if ch == 'b' or ch == 'f':                       #alt-left arrow
-                    tc.dohist(ch)
-                else:
-                    tc.bell()     #for the ESC, better late than never
-                    tc.inbuf = ch + tc.inbuf    # reprocess the character
-
-class CygwinOS(PosixOS):
-    def __init__(self):
-        # linesep code here
-        pass
-    
-    def print_(self,*args,**kwargs):
-        """this is a workaround for a weird cygwin xterm bug that \n becomes
-        just lf at times when combined with getraw
-        http://stackoverflow.com/questions/28162914/
-        """
-        args = map(lambda x: '\r\n'.join(x.split('\n')), args)
-        if 'end' in kwargs:
-            PosixOS.print_(self, *args, **kwargs)
-        else:
-            PosixOS.print_(self, *args, end='\r\n', **kwargs)
-    
-class UnknownOS(TheOS):
-    #TODO add getraw method to reset to line-mode
-    def defaultterm(self):
-        return 'l'
 
 def main(*args):
     global syntchar, forms, metachar, activeImpliedCall, tracing
@@ -2044,8 +1934,8 @@ def psrs():     # the main loop
             remainder = ''.join( parse(strpsrs) )
             ourOS.print_('')    #blank line
             if remainder != '':
-                raise tracError(False, \
-                    '<UNF> unbalanced parens: after parsing remainder = ' + remainder)
+                raise tracError(False, '<UNF> unbalanced parens: ' \
+                    'after parsing, remainder = ' + remainder)
         except tracHalt:            # terminate: HL or EOF (^D)
             return
         except tracError as e:
@@ -2059,7 +1949,7 @@ def psrs():     # the main loop
             ourOS.print_('<INT>')
         except RuntimeError as e:   # mostly recursion depth exceeding (e.g #(fact,1000) )
             ourOS.print_( '<SCE>', str(e) )
-        finally:
-            for f in forms: forms[f].validate() # for debugging, OK to comment out
+        finally:            # for debugging, OK to comment out
+            for f in forms: forms[f].validate()
 
 if __name__ == '__main__': main(*sys.argv[1:])
