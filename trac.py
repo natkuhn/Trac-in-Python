@@ -1352,6 +1352,25 @@ class SwitchBank:
         return s
             
 class Mode:     # for MO
+    """
+    #(mo) goes into T-64 regulation mode, blocking extended features like 
+    extended primitives like #(rm,5,2) or #(rs,string,offset).
+    
+    #(mo,e) allows extended features; it's the default
+    
+    #(mo,s) controls the features which are activated when #(mo,e) is 
+    executed.  #(mo,s,switches) allows the following switches:
+        +/- p for extended primitives, and
+        +/- u for unforgiving errors (such as "too many arguments")
+    e.g. #(mo,s,-p+u) sets no extended primitives but unforgiving errors
+    #(mo,s) by itself return the state of those switches
+    #(mo,ms,:) modifies the syntactic character, in this case to ':', following
+    C.A.R. Kagan... apparently this was easier to type on a Teletype; it's no 
+    easier on a standard keyboard, so I switched to the # camp... especially 
+    since you can put scripts in as Python comments, and not have to edit out 
+    initial #s.
+    TODO: add #(mo,ar) for arithmetic radix and #(mo,r) for boolean radix
+    NSK"""
 #must be defined above primitives, in case there is a duplicate
     swextended = SwitchBank('pu','p')   # default is extended prims
     swunext = SwitchBank('pu','')
@@ -1374,19 +1393,6 @@ class Mode:     # for MO
     
     @staticmethod
     def setmode(*args):
-        """#(mo) goes into T-64 regulation mode. #(mo,e) allows extended primitives
-        such as #(rm,5,2).  #(mo,e,switches) allows +/- p for extended primitives, and
-        +/- u for unforgiving errors, e.g. no extended primitives but unforgiving errors
-        is #(mo,e,-p+u).  #(mo,pm) prints out the current mode switches.
-        #(mo,ms,:) modifies the syntactic character, in this case to ':', following
-        C.A.R. Kagan... apparently this was easier to type on a Teletype; it's no easier
-        on a standard keyboard, so I switched to the # camp... especially since you
-        can put scripts in as Python comments, and not have to edit out initial #s.
-        NSK"""
-        
-        # if you wanted to add more switches, you could clean up this code and automate
-        # some of it
-        
         if len(args) == 0:  # #(MO): meet the T-64 spec
             Mode.extended(False)
             return
