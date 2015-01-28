@@ -1370,7 +1370,7 @@ class Mode:     # for MO
     since you can put scripts in as Python comments, and not have to edit out 
     initial #s.
     TODO: add #(mo,ar) for arithmetic radix and #(mo,r) for boolean radix
-    NSK"""
+    """
 #must be defined above primitives, in case there is a duplicate
     swextended = SwitchBank('pu','p')   # default is extended prims
     swunext = SwitchBank('pu','')
@@ -1900,34 +1900,6 @@ class UnknownOS(TheOS):
     def defaultterm(self):
         return 'l'
 
-class TheOS:
-    """OS-dependent stuff goes here.
-    The code for getraw() comes from:
-    http://code.activestate.com/recipes/134892/
-    and screen-polling code for the future can be found at:
-    http://stackoverflow.com/questions/27750135/
-    """
-    @staticmethod
-    def whichOS():
-        """note that this method is fixed at compile time; for a runtime-
-        based method, or for the origin of this code, see:
-        http://stackoverflow.com/questions/4553129/when-to-use-os-name-sys-platform-or-platform-system
-        """
-        if os.name == 'nt':
-            return WindowsOS()
-        elif os.name == 'posix':
-            if sys.platform == 'cygwin':
-                return CygwinOS()
-            else:
-                return PosixOS()
-        else:
-            print('Unrecognized OS:',os.name)
-            return UnknownOS()
-    
-    def print_(self,*args,**kwargs):
-        print(*args,**kwargs)
-        return
-    
 class WindowsOS(TheOS):
     def getraw(self):
         import msvcrt
