@@ -356,7 +356,7 @@ class form:
             try:
                 del forms[name]
             except:
-                if mode.unforgiving: form.FNFError(name)
+                if Mode.unforgiving(): form.FNFError(name)
     
     @staticmethod
     def initial(name,text,default):     # for IN
@@ -486,9 +486,19 @@ class termError(Exception):
         return ' '.join(map(str,self.args))
 
 class TracConsole(object):
-    def __init__(self):
+    def __init__(self, *args):
         self.inbuf = ''
+        self.settype(*args)
     
+    def settype(self,*args):
+        self.contype = args[0].lower()
+        prim.condTMA(args, 1, offset=1)
+#         if len(args) > 1 and Mode.unforgiving():
+#             prim.TMAError(len(args)+1, 2)
+    
+    def gettype(self):
+        return self.contype
+
     def inkey(self):
         if self.inbuf:
             ch = self.inbuf[0]
@@ -522,10 +532,6 @@ class BasicConsole(TracConsole):
     is for a basic terminal, e.g. the Windows command line, which doesn't
     have the vt100/xterm escape sequences
     """
-    def __init__(self):
-        self.contype = 'b'
-        TracConsole.__init__(self)
-    
     def readstr(self, *args):
         """New, improved readstr function. Rather than using stdin.readline(),
         loops on getch(); this allows it to capture the metacharacter 
@@ -586,8 +592,9 @@ class LineConsole(TracConsole):
         return self.inkey()
     
     def readstr(self, *args):
-        if mode.unforgiving and len(args) > 0:
-            prim.TMAError( len(args), 0 )
+        prim.condTMA(args, 0)
+#         if len(args) > 0 and Mode.unforgiving():
+#             prim.TMAError( len(args), 0 )
         string = ''
         mc = metachar.get()
         while True:
@@ -618,20 +625,22 @@ class xConsole(TracConsole):
         TracConsole.__init__(self, *args)
     
     def settype(self, type, *args):
-        self.contype = type
+        self.contype = type.lower()
         self.trylocpoll = True
         if type == 'x':
             self.trysizepoll = True
             self.trysizeenv = False # 2nd option
-            if mode.unforgiving and len(args) > 0:
-                raise prim.TMAError(2+len(args),2)
+            prim.condTMA(args, 0, offset=2)
+#             if len(args) > 0 and Mode.unforgiving():
+#                 raise prim.TMAError(2+len(args),2)
             return
         elif type == 'v':
             self.trysizepoll = False
             self.trysizeenv = False # 2nd option
             if len(args) == 0: return
-            if mode.unforgiving and len(args) > 2:
-                raise prim.TMAError(4+len(args),4,atmost=True)
+            prim.condTMA(args, 0, offset=2)
+#             if len(args) > 2 and Mode.unforgiving():
+#                 raise prim.TMAError(4+len(args),4,atmost=True)
             try:
                 cols = int(args[0])
                 rows = int(args[1])
@@ -767,13 +776,15 @@ class xConsole(TracConsole):
         mc = metachar.get()
         self.histpointer = None
         #handle arguments to RS
-        if mode.extended:
-            if mode.unforgiving and len(args) > 2:
-                prim.TMAError( len(args), 2, atmost=True )
-            if len(args) < 2: startpoint = ''
-            else: startpoint = args[1]
-            if len(args) < 1: startstr = ''
-            else: startstr = args[0]
+        if len(args) > 0 and Mode.extprim():
+            prim.condTMA(args, 2, atmost=True)
+#             if len(args) > 2 and Mode.unforgiving():
+#                 prim.TMAError( len(args), 2, atmost=True )
+            startstr = args[0]
+            if len(args) < 2:
+                startpoint = '0'
+            else:
+                startpoint = args[1]
             (startnum, dummy, sign) = mathprim.parsenum(startpoint)
             if sign == '-':
                 startnum += len(startstr)
@@ -781,12 +792,13 @@ class xConsole(TracConsole):
             startnum = min(startnum, len(startstr) )
             self.inp = InputString(startstr, startnum)
             ourOS.print_(startstr, end='')
-            self.refreshize()
+            self.refreshsize()
             self.inp.cursorisat( len(startstr) )
             self.inp.curtoinspoint()
         else:
-            if mode.unforgiving and len(args) > 0:
-                prim.TMAError( len(args), 0 )
+            prim.condTMA(args,0)
+#             if len(args) > 0 and Mode.unforgiving():
+#                 prim.TMAError( len(args), 0 )
             self.inp = InputString('',0)
         
         while True:             #RS main loop
@@ -838,7 +850,7 @@ class xConsole(TracConsole):
                     self.adjustcarriage(head + mc)   #remember, mc could be \n
                     self.inp.rstring = head
                     self.inp.redolengths()
-                    self.history.append(self.inp)
+                    rshistory.append(self.inp)
                     return head
                 tail = self.inp.rstring[self.inp.inspoint:]
                 self.inp.rstring = head + ch + tail
@@ -860,7 +872,7 @@ class xConsole(TracConsole):
     def dohist(self, dir):
         if self.histpointer == None:    #set up history
             self.histcopy = []
-            for x in self.history:
+            for x in rshistory:
                 self.histcopy.append(x.copy())
             self.histpointer = len(self.histcopy)
             self.histcopy.append(self.inp)
@@ -1261,7 +1273,7 @@ class block:      # static class to handle the block (disk storage) primitives.
                 f = forms[n]    #can't use form.find b/c it terminates if not found
                 if f not in sblist: sblist.append(f)
             else:
-                if mode.unforgiving: form.FNFError(n)
+                if Mode.unforgiving(): form.FNFError(n)
         try:
             with file(args[0], 'w') as out:
                 pickle.dump(sblist, out)    # potential problem if forms modified by ss?
@@ -1275,7 +1287,8 @@ class block:      # static class to handle the block (disk storage) primitives.
     def fetch(*args):           # for FB
         l = len(args)
         if l == 0: prim.TFAError(0,1,False)     # expecting 1
-        if mode. unforgiving and l > 1: prim.TMAError(l,1)
+        prim.condTMA(args,1)
+#         if l > 1 and Mode.unforgiving(): prim.TMAError(l,1)
         try:
             with file(args[0]) as input:
                 fblist = pickle.load(input)
@@ -1287,7 +1300,8 @@ class block:      # static class to handle the block (disk storage) primitives.
     def erase(*args):           # for EB
         l = len(args)
         if l == 0: prim.TFAError(0,1,False)     # expecting 1
-        if mode. unforgiving and l > 1: prim.TMAError(l,1)
+        prim.condTMA(args,1)
+#        if l > 1 and Mode.unforgiving(): prim.TMAError(l,1)
         try:
             os.remove(args[0])
         except OSError as e:
@@ -1299,7 +1313,7 @@ class tracHalt(Exception):  # used for HL and for EOF (^D) on stdin
 
 class tracError(Exception):
     """the first of the args is True if the error message is to be given even
-    when mode.unforgiving is False.  The other args are joined together to 
+    when Mode.unforgiving() is False.  The other args are joined together to 
     form the message.  As of now the only use for the True setting is the 
     <STE> errors"""
     
@@ -1309,15 +1323,57 @@ class tracError(Exception):
 class primError(Exception):
     """this is for 'primitive errors.'  The first of the args is False if the 
     primitive should simply abort and return a null value unless 
-    mode.unforgiving is True, in which case execution will stop and the 
+    Mode.unforgiving() is True, in which case execution will stop and the 
     message will be displayed.  If the first arg is True, execution is halted 
     and the message is displayed no matter what."""
     pass
+
+class SwitchBank:
+    def __init__(self,all,ons):
+        self.switches = {}
+        for x in list(all):
+            self.switches[x] = x in ons
     
-class mode:     # for MO
+    sre = re.compile('([-+]?)([a-zA-Z])')
+    
+    def flip(self,swstring):
+        i = 0
+        while i < len(swstring):
+            m = SwitchBank.sre.match(swstring[i:])
+            try:
+                self.switches[m.group(2).lower()] = \
+                    (m.group(1) != '-') #'+' or '' are ON
+                i += m.end()
+            except (AttributeError, KeyError):
+                raise primError(False, 'unrecognizable switch string: ', \
+                    swstring[i:])
+    
+    def vals(self):
+        s = ''
+        for k,v in self.switches.items():
+            s += ('+' if v else '-') + k
+        return s
+            
+class Mode:     # for MO
 #must be defined above primitives, in case there is a duplicate
-    extended = True
-    unforgiving = False
+    swextended = SwitchBank('pu','p')   # default is extended prims
+    swunext = SwitchBank('pu','')
+    swactive = swextended               # default is #(mo,e) on startup
+    
+    @staticmethod
+    def unforgiving():
+        return Mode.swactive.switches['u']
+    
+    @staticmethod
+    def extprim():
+        return Mode.swactive.switches['p']
+    
+    @staticmethod
+    def extended(m=None):
+        if m == None:
+            return Mode.swactive == Mode.swextended
+        else:
+            Mode.swactive = Mode.swextended if m else Mode.swunext
     
     @staticmethod
     def setmode(*args):
@@ -1335,76 +1391,46 @@ class mode:     # for MO
         # some of it
         
         if len(args) == 0:  # #(MO): meet the T-64 spec
-            mode.extended = False   #no extra primitives
-            mode.unforgiving = False    #don't throw errors re: wrong # of args, FNF etc
+            Mode.extended(False)
             return
         modearg = args[0].lower()
-        if modearg == 'ms':    # C. A. R. Kagan extension to Modify Syntax character
-            syntchar.set( '' if len(args) == 1 else args[1], metachar.get() )
-            return
-        if modearg == 'pm':
-            ourOS.print_('<MO>: ' + ('' if mode.extended else 'no ') + \
-                'extended primitives; ' + ('un' if mode.unforgiving else '') \
-                + 'forgiving with errors.', end='')
-            return
-        if modearg == 'rt': #reactive typewriter
-            if len(args) == 1:
-                return tc.contype
-            else:
-                assert len(args) > 1
-                mode.setcontype(args[1].lower())
-                return
         if modearg == 'e':
+            prim.condTMA(args,1)
+            Mode.extended(True)
+        elif modearg == 'ms':    # C. A. R. Kagan extension to Modify Syntax character
+            prim.condTMA(args,2)
+            syntchar.set( '' if len(args) == 1 else args[1], metachar.get() )
+        elif modearg == 's':    #switches when extended mode activated
+            prim.condTMA(args,2)
             if len(args) == 1:
-                mode.extended = True
-                return
+                return Mode.swextended.vals()
             else:
-                switches = args[1]
-                while switches != '':
-                    val = True
-                    if switches[0] == '+': switches = switches[1:]
-                    elif switches[0] == '-':
-                        val = False
-                        switches = switches[1:]
-                    if switches == '':
-                        raise primError(False, 'missing switch')
-                    if switches[0] == 'p':      #extended primitives
-                        mode.extended = val
-                        switches = switches[1:]
-                        continue
-                    if switches[0] == 'u':      #unforgiving errors
-                        mode.unforgiving = val
-                        switches = switches[1:]
-                        continue
-                    raise primError(False, 'unrecognized switch: ', switches[0] )
-                return
-        raise primError(False, 'unrecognized mode: ', modearg)
+                Mode.swextended.flip(args[1])
+        elif modearg == 'rt': #reactive typewriter
+            Mode.setcontype(*args[1:])
+        else:
+            raise primError(False, 'unrecognized mode: ', modearg)
     
     @staticmethod
     def setcontype(*args):
         global tc, condict      #, contypes
-#        ourOS.print_('setcontype: c=',c,' args= ',args)
-        c = args[0]
+        if len(args) == 0:
+#            tc.bell()
+            return tc.gettype()
+        c = args[0].lower()
         oldtc = tc
         try:
             tc = condict[c]
-            if tc == None:  #need to instantiate
+            if tc == None:      #need to instantiate
                 tc = condict[c] = contypes[c](*args)
-            else:   # the console is already instantiated
+            else:
                 tc.settype(*args) #because xConsole handles both x and v
         except KeyError:
+            tc = oldtc
             raise primError(False, 'unrecognized console type: ', c)
-        tc = condict[c]
-        if tc == None:
-            if c == 'b':
-                tc = condict['b'] = BasicConsole()
-            elif c == 'l':
-                tc = condict['l'] = LineConsole()
-            elif c == 'x':
-                tc = condict['x'] = xConsole()
-            else:
-                assert False
-        assert c == tc.contype
+        except primError:       # e.g. too many args
+            tc = oldtc
+            raise
     
 def trace(*args):       # a flag, used in TN and TF
     global tracing
@@ -1436,7 +1462,7 @@ class prim:
             args = self.fixargs(*args)
             val = self.fn(*args)
         except primError as p:
-            if mode.unforgiving or p.args[0]:   #interrupt execution
+            if Mode.unforgiving() or p.args[0]:   #interrupt execution
                 raise tracError(True, '<UNF> (', self.name, ') ',*p.args[1:])
             else:
                 return ''
@@ -1445,7 +1471,7 @@ class prim:
     
     def fixargs(self,*args):    #pads if necessary, and checks too many or too few
         l = len(args)
-        if mode.unforgiving:
+        if Mode.unforgiving():
             if l < self.minargs:
                 prim.TFAError(l, self.minargs, self.minargs != self.maxargs )
             if self.maxargs >= 0 and l > self.maxargs: 
@@ -1467,6 +1493,11 @@ class prim:
     def TFAError(has,expecting,ormore):
         raise primError(False, 'too few arguments: has ',has,', expecting ', expecting, \
             ' or more' if ormore else '')
+    
+    @staticmethod
+    def condTMA(args, num, offset=0, atmost=False ):
+        if len(args) > num and Mode.unforgiving():
+            prim.TMAError(len(args) + offset, num + offset, atmost=atmost)
     
 class mathprim(prim):   # for AD, SU, ML, DV, RM
     def __call__(self,*args):
@@ -1633,7 +1664,7 @@ def eval(arglist, act):     # when a function call is assembled by the parser, t
     pname = arglist[0].lower()
     if pname in prims:
         p = prims[pname]
-        if mode.extended or not p.extended:
+        if Mode.extprim() or not p.extended:
             val = prims[pname](*arglist[1:])
             #if val == None: val = ''
             if isinstance(val,str): return (val, act)
@@ -1725,7 +1756,7 @@ prim( 'tf', ( lambda: trace(False) ), exact=0 )
 
 prim( 'hl', tracHalt, exact=0 )
 
-prim( 'mo', mode.setmode )
+prim( 'mo', Mode.setmode )
 
 class TheOS:
     """OS-dependent stuff goes here.
@@ -1882,12 +1913,14 @@ def main(*args):
     trace(False)
     tc = None   # because setcontype saves this for error recovery
     for x in args:
-        if len (x)>4 and x[0:4] == '-mo,':
-            mode.setmode( *(x[4:].split(',')) )
+        if x == '-mo':
+            Mode.setmode()
+        elif len (x)>4 and x[0:4] == '-mo,':
+            Mode.setmode( *(x[4:].split(',')) )
         else:
             print('Error: unrecognized paramater (',x,')')
     if tc == None:  #default console type by OS, if not set by switches
-        mode.setcontype(ourOS.defaultterm())
+        Mode.setcontype(ourOS.defaultterm())
     psrs()
 
 def psrs():     # the main loop
@@ -1904,7 +1937,7 @@ def psrs():     # the main loop
         except tracHalt:            # terminate: HL or EOF (^D)
             return
         except tracError as e:
-            if mode.unforgiving or e.args[0]:
+            if Mode.unforgiving() or e.args[0]:
                 ourOS.print_( str(e) )
             else:
                 ourOS.print_( '' )
