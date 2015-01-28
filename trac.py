@@ -63,6 +63,12 @@ x, b, or l.  #(mo,rt) returns the current mode, in lower case.  Incidentally,
             line.  I hope someone likes this because it was truly painful to 
             implement.  xterm mode drops back to vterm mode if there is no
             response to device screen-size polls.
+<<<<<<< HEAD
+=======
+
+#(mo,rt) returns the mode; in the case of x or v it returns mode,rows,cols.
+So to see those, you need ##(mo,rt)
+>>>>>>> adding-vt100-mode
 
 6. In xterm mode of #5 above, I have implemented an extended version of
 read string: #(rs,init string,displacement): it is as if the user has already 
@@ -500,6 +506,7 @@ class TracConsole(object):
         return self.contype
 
     def inkey(self):
+#         global ourOS
         if self.inbuf:
             ch = self.inbuf[0]
             self.inbuf = self.inbuf[1:]
@@ -625,14 +632,23 @@ class xConsole(TracConsole):
         TracConsole.__init__(self, *args)
     
     def settype(self, type, *args):
+<<<<<<< HEAD
         self.contype = type.lower()
+=======
+        self.contype = type
+>>>>>>> adding-vt100-mode
         self.trylocpoll = True
         if type == 'x':
             self.trysizepoll = True
             self.trysizeenv = False # 2nd option
+<<<<<<< HEAD
             prim.condTMA(args, 0, offset=2)
 #             if len(args) > 0 and Mode.unforgiving():
 #                 raise prim.TMAError(2+len(args),2)
+=======
+            if mode.unforgiving and len(args) > 0:
+                raise prim.TMAError(2+len(args),2)
+>>>>>>> adding-vt100-mode
             return
         elif type == 'v':
             self.trysizepoll = False
@@ -654,6 +670,10 @@ class xConsole(TracConsole):
             assert False
     
     def gettype(self):
+<<<<<<< HEAD
+=======
+#        dummystr = InputString('',0)
+>>>>>>> adding-vt100-mode
         tc.refreshsize()
         return self.contype + ',' + str(self.numcols) + ',' + \
             str(self.numrows)
@@ -792,7 +812,11 @@ class xConsole(TracConsole):
             startnum = min(startnum, len(startstr) )
             self.inp = InputString(startstr, startnum)
             ourOS.print_(startstr, end='')
+<<<<<<< HEAD
             self.refreshsize()
+=======
+            self.refreshize()
+>>>>>>> adding-vt100-mode
             self.inp.cursorisat( len(startstr) )
             self.inp.curtoinspoint()
         else:
@@ -1394,6 +1418,24 @@ class Mode:     # for MO
             Mode.extended(False)
             return
         modearg = args[0].lower()
+<<<<<<< HEAD
+=======
+        if modearg == 'ms':    # C. A. R. Kagan extension to Modify Syntax character
+            syntchar.set( '' if len(args) == 1 else args[1], metachar.get() )
+            return
+        if modearg == 'pm':
+            ourOS.print_('<MO>: ' + ('' if mode.extended else 'no ') + \
+                'extended primitives; ' + ('un' if mode.unforgiving else '') \
+                + 'forgiving with errors.', end='')
+            return
+        if modearg == 'rt': #reactive typewriter
+            if len(args) == 1:
+                return tc.gettype()
+            else:
+                assert len(args) > 1
+                mode.setcontype(args[1].lower(),*args[2:])
+                return
+>>>>>>> adding-vt100-mode
         if modearg == 'e':
             prim.condTMA(args,1)
             Mode.extended(True)
@@ -1414,10 +1456,15 @@ class Mode:     # for MO
     @staticmethod
     def setcontype(*args):
         global tc, condict      #, contypes
+<<<<<<< HEAD
         if len(args) == 0:
 #            tc.bell()
             return tc.gettype()
         c = args[0].lower()
+=======
+#        ourOS.print_('setcontype: c=',c,' args= ',args)
+        c = args[0]
+>>>>>>> adding-vt100-mode
         oldtc = tc
         try:
             tc = condict[c]
@@ -1899,10 +1946,158 @@ class UnknownOS(TheOS):
     def defaultterm(self):
         return 'l'
 
+<<<<<<< HEAD
+=======
+class TheOS:
+    """OS-dependent stuff goes here.
+    The code for getraw() comes from:
+    http://code.activestate.com/recipes/134892/
+    and screen-polling code for the future can be found at:
+    http://stackoverflow.com/questions/27750135/
+    """
+    @staticmethod
+    def whichOS():
+        """note that this method is fixed at compile time; for a runtime-
+        based method, or for the origin of this code, see:
+        http://stackoverflow.com/questions/4553129/when-to-use-os-name-sys-platform-or-platform-system
+        """
+        if os.name == 'nt':
+            return WindowsOS()
+        elif os.name == 'posix':
+            if sys.platform == 'cygwin':
+                return CygwinOS()
+            else:
+                return PosixOS()
+        else:
+            print('Unrecognized OS:',os.name)
+            return UnknownOS()
+    
+    def print_(self,*args,**kwargs):
+        print(*args,**kwargs)
+        return
+    
+class WindowsOS(TheOS):
+    def getraw(self):
+        import msvcrt
+        return msvcrt.getch()
+    
+    def defaultterm(self):
+        return 'b'
+    
+    def rsctrl(self, inp, code):
+        if code == 8:
+            return xConsole.BS
+        if code == 127:         # TODO check this
+            return xConsole.DEL
+        if code == 224:      # alpha
+            ch = tc.inkey()
+            if ch == 'H':                  #up arrow
+                inp.rowup()
+            elif ch == 'P':                #down arrow
+                inp.rowdown()
+            elif ch == 'K':                #left arrow
+                inp.charleft()
+            elif ch == 'M':                #right arrow
+                inp.charright()
+            elif ch == 'S':                #right arrow
+                return xConsole.DEL # at least for fn-delete on VMWare
+            else:
+                tc.bell()     #for the alpha, better late than never
+                tc.inbuf = ch + tc.inbuf    # reprocess the character
+        elif code == 0:     # NUL
+            ch = tc.inkey()
+            code = ord(ch)
+            if code == 155:         #alt-left arrow
+                inp.rowleft()
+            elif code == 157:       #alt-right arrow
+                inp.rowright()
+            elif code == 152:       #alt-up arrow
+                tc.dohist('b')
+            elif code == 160:       #alt-down arrow
+                tc.dohist('f')
+            else:
+                tc.bell()     #for the alpha, better late than never
+                tc.inbuf = ch + tc.inbuf    # reprocess the character
+        else:
+            tc.bell()
+        #eqivalent to "return None"
+
+class PosixOS(TheOS):
+    def getraw(self):
+        import sys, tty, termios, fcntl, os
+        fd = sys.stdin.fileno()
+        old_attr = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_attr)
+        return ch
+    
+    def defaultterm(self):
+        return 'x'
+    
+    def rsctrl(self, inp, code):
+        if code == 127:
+            return xConsole.BS
+        if code == 27:      #ESC
+            eseq = tc.geteseq()
+            ch = eseq.pop(0)
+            if ch == '[':
+                if eseq[0] == 'A':                  #up arrow
+                    inp.rowup()
+                elif eseq[0] == 'B':                #down arrow
+                    inp.rowdown()
+                elif eseq[0] == 'D':                #left arrow
+                    inp.charleft()
+                elif eseq == ['1',';','2','D']:     #shift-left arrow
+                    inp.rowleft()
+                elif eseq[0] == 'C':                #right arrow
+                    inp.charright()
+                elif eseq == ['1',';','2','C']:     #shift-right arrow
+                    inp.rowright()
+                elif eseq == ['3','~']:             #delete
+                    return xConsole.DEL
+                else:
+                    self.bell()     #unrecognized CSI (=esc-[ sequence)
+            else:   #eseq doesn't start with [
+                if ch == 'b' or ch == 'f':                       #alt-left arrow
+                    tc.dohist(ch)
+                else:
+                    tc.bell()     #for the ESC, better late than never
+                    tc.inbuf = ch + tc.inbuf    # reprocess the character
+        #eqivalent to "return None"
+
+class CygwinOS(PosixOS):
+    def __init__(self):
+        # linesep code here
+        pass
+    
+    def print_(self,*args,**kwargs):
+        """this is a workaround for a weird cygwin xterm bug that \n becomes
+        just lf at times when combined with getraw
+        http://stackoverflow.com/questions/28162914/
+        """
+        args = map(lambda x: '\r\n'.join(x.split('\n')), args)
+        if 'end' in kwargs:
+            PosixOS.print_(self, *args, **kwargs)
+        else:
+            PosixOS.print_(self, *args, end='\r\n', **kwargs)
+    
+class UnknownOS(TheOS):
+    #TODO add getraw method to reset to line-mode
+    def defaultterm(self):
+        return 'l'
+
+>>>>>>> adding-vt100-mode
 def main(*args):
     global syntchar, forms, metachar, activeImpliedCall, tracing
     global ourOS, condict, contypes, tc, rshistory
     ourOS = TheOS.whichOS()
+<<<<<<< HEAD
+=======
+#    getraw = _Getch()
+>>>>>>> adding-vt100-mode
     condict = dict(b=None, l=None, v= None, x=None)
     contypes = dict(b=BasicConsole, l=LineConsole, v=xConsole, x=xConsole)
     rshistory = []
@@ -1913,6 +2108,7 @@ def main(*args):
     trace(False)
     tc = None   # because setcontype saves this for error recovery
     for x in args:
+<<<<<<< HEAD
         if x == '-mo':
             Mode.setmode()
         elif len (x)>4 and x[0:4] == '-mo,':
@@ -1921,6 +2117,14 @@ def main(*args):
             print('Error: unrecognized paramater (',x,')')
     if tc == None:  #default console type by OS, if not set by switches
         Mode.setcontype(ourOS.defaultterm())
+=======
+        if len (x)>4 and x[0:4] == '-mo,':
+            mode.setmode( *(x[4:].split(',')) )
+        else:
+            print('Error: unrecognized paramater (',x,')')
+    if tc == None:  #default console type by OS, if not set by switches
+        mode.setcontype(ourOS.defaultterm())
+>>>>>>> adding-vt100-mode
     psrs()
 
 def psrs():     # the main loop
@@ -1937,7 +2141,11 @@ def psrs():     # the main loop
         except tracHalt:            # terminate: HL or EOF (^D)
             return
         except tracError as e:
+<<<<<<< HEAD
             if Mode.unforgiving() or e.args[0]:
+=======
+            if mode.unforgiving or e.args[0]:
+>>>>>>> adding-vt100-mode
                 ourOS.print_( str(e) )
             else:
                 ourOS.print_( '' )
