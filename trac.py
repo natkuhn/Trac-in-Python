@@ -108,11 +108,11 @@ Nat Kuhn (NSK, nk@natkuhn.com)
         MAYBE: paren matching? really? these kids today are soft!
         DOING: implement theOS class with ourOS instance for:   
             a. getch DONE
-            b. cygwin change os.linesep
+            b. cygwin change os.linesep DONE
             c. process keypresses win vs posix DONE
         DONE: move numrows, numcols from InputString to xConsole
         MAYBE: change class names to caps
-        BUG: ^D in first character of RS generates 'InputString' object
+        FIXED: ^D in first character of RS generates 'InputString' object
             has no attribute 'hanging.'
         
 """
@@ -507,7 +507,7 @@ class TracConsole(object):
             prim.TMAError(1+len(args), 2)
     
     def inkey(self):
-        global ourOS
+#         global ourOS
         if self.inbuf:
             ch = self.inbuf[0]
             self.inbuf = self.inbuf[1:]
@@ -620,7 +620,7 @@ class LineConsole(TracConsole):
                 string += ch
 
 class xConsole(TracConsole):
-    global ESC, ourOS
+    global ESC  # commented out ourOS
     ESC = chr(27)
     
     DEFROWS = 24
@@ -702,7 +702,7 @@ class xConsole(TracConsole):
                     if m == None:
                         raise ValueError
                     self.numcols = int(m.group(3))   #WxH
-                    self.numrows = int(aasm.group(4))
+                    self.numrows = int(m.group(4))
                 except ValueError:
                     raise termError('ANSICON misformatted: ',e)
         if self.numrows == None:    #fail x 2
@@ -983,6 +983,7 @@ class InputString(object):
         self.rstring = str
         self.inspoint = point
         self.redolengths()
+        tc.refreshsize()
         self.posfrompoint(point)    #initialize self.hanging, so hitting
             # ^C or ^D as first input char doesn't generate exception
     
@@ -1203,7 +1204,7 @@ class InputString(object):
     
     def rowleft(self):    #move cursor back to start of row
         self.curatinspoint()
-        if self.colloc == 1 or self.pos == 0:     #already there?
+        if self.colloc == 1 or self.inspoint == 0:     #already there?
             tc.bell()
             return
         self.inspoint -= self.colloc - (1 if not self.hanging else 0)
@@ -1399,7 +1400,7 @@ class mode:     # for MO
     
     @staticmethod
     def setcontype(*args):
-        global tc, condict, contypes
+        global tc, condict      #, contypes
 #        ourOS.print_('setcontype: c=',c,' args= ',args)
         c = args[0]
         oldtc = tc
@@ -1862,8 +1863,15 @@ class CygwinOS(PosixOS):
         pass
     
     def print_(self,*args,**kwargs):
-        PosixOS.print_(self,*map(lambda x: '\r\n'.join(x.split('\n')), args), \
-            **kwargs)
+        """this is a workaround for a weird cygwin xterm bug that \n becomes
+        just lf at times when combined with getraw
+        http://stackoverflow.com/questions/28162914/
+        """
+        args = map(lambda x: '\r\n'.join(x.split('\n')), args)
+        if 'end' in kwargs:
+            PosixOS.print_(self, *args, **kwargs)
+        else:
+            PosixOS.print_(self, *args, end='\r\n', **kwargs)
     
 class UnknownOS(TheOS):
     #TODO add getraw method to reset to line-mode
@@ -1894,7 +1902,7 @@ def main(*args):
     psrs()
 
 def psrs():     # the main loop
-    global syntchar
+    #global syntchar
     while True:
         strpsrs = syntchar.get() + '(ps,' + syntchar.get() + '(rs))'
         tc.printstr(strpsrs+'\n> ')
