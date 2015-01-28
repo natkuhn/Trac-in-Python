@@ -56,20 +56,13 @@ x, b, or l.  #(mo,rt) returns the current mode, in lower case.  Incidentally,
             to the last newline, and then echoes deleted characters between
             \s.  Default mode for Windows, has known issues.  Based on code 
             from Ben Kuhn.
-    v   vt100 mode: like xterm mode below, but for terminals without the 
-            screen location query (actually most other than MacOS X 
-            Terminal.app). #(mo,rt,v,rows,cols) sets screen size, defaults
-            to 24,80.  Resizing the screen without resetting will have 
-            unpredictable results.
     x   xterm mode: default mode for Unix/Mac OS X.  Works with backspace, 
             delete, cursor up/down/left/right, and implements unix shell-
             style history using alt-left-arrow and alt-right-arrow.  Shift-
             left- and right-arrow move to beginning and end of the current
             line.  I hope someone likes this because it was truly painful to 
-            implement.
-
-#(mo,rt) returns the mode; in the case of x or v it returns mode,rows,cols.
-So to see those, you need ##(mo,rt)
+            implement.  xterm mode drops back to vterm mode if there is no
+            response to device screen-size polls.
 
 6. In xterm mode of #5 above, I have implemented an extended version of
 read string: #(rs,init string,displacement): it is as if the user has already 
@@ -105,6 +98,14 @@ Nat Kuhn (NSK, nk@natkuhn.com)
         TODO: set arithmetic and esp. boolean radix
         TODO: test for ^C while in a loop
         MAYBE: paren matching? really? these kids today are soft!
+        DOING: implement theOS class with ourOS instance for:   
+            a. getch DONE
+            b. cygwin change os.linesep DONE
+            c. process keypresses win vs posix DONE
+        DONE: move numrows, numcols from InputString to xConsole
+        MAYBE: change class names to caps
+        FIXED: ^D in first character of RS generates 'InputString' object
+            has no attribute 'hanging.'
         
 """
 # v1.1 implements new RS with left-right cursor keys
@@ -144,51 +145,6 @@ import re
 import sys
 import cPickle as pickle                # for SB and FB
 import os                               # for EB
-
-# these _Getch are for single-character reading; the original code is from 
-# http://code.activestate.com/recipes/134892/
-# modified for keyboard polling as documented here: http://stackoverflow.com/questions/27750135/
-# I didn't know exactly how to do this in Carbon and it seems safe in 2015
-# to delete the carbon stuff
-
-class _Getch:
-    """Gets a single character from standard input.  Does not echo to the
-screen."""
-    the_os = ''
-    def __init__(self):
-        try:
-            self.impl = _GetchWindows()
-            _Getch.the_os = 'w'    #Windows
-        except ImportError:
-            self.impl = _GetchUnix()
-            _Getch.the_os = 'u'    #Unix / MacOS Aqua
-
-    def __call__(self): return self.impl()
-    
-class _GetchUnix:
-    def __init__(self):
-        import tty, sys, termios # import termios now or else you'll get the Unix version on the Mac
-
-    def __call__(self):
-        import sys, tty, termios, fcntl, os
-        fd = sys.stdin.fileno()
-        old_attr = termios.tcgetattr(fd)
-        try:
-            tty.setraw(fd)
-            ch = sys.stdin.read(1)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_attr)
-        return ch
-    
-class _GetchWindows:
-    def __init__(self):
-        import msvcrt
-
-    def __call__(self):
-        import msvcrt
-        return msvcrt.getch()
-    
-# and now back to NSK code for the Trac Processor
 
 class form:
     """a 'form' is a 'defined string.' It is stored as a list; each element in 
@@ -303,32 +259,32 @@ class form:
             if c.pointer >= 0: activecount += 1
             if isinstance(c, textchunk):
                 if previstext:
-                    print('Invalid form: consecutive text chunks in', self.name, \
+                    ourOS.print_('Invalid form: consecutive text chunks in', self.name, \
                         ':',c.text,'and previous')
                     invalid = True
                 previstext = True
                 if (c.text) == '':
-                    print('Invalid form: null text chunk in',self.name)
+                    ourOS.print_('Invalid form: null text chunk in',self.name)
                     invalid = True
                 if c.pointer >= len(c.text) or c.pointer <-1:
-                    print('Invalid pointer (',c.pointer,') in text chunk',c.text)
+                    ourOS.print_('Invalid pointer (',c.pointer,') in text chunk',c.text)
                     invalid = True
                 continue
             previstext = False  #segment gap or end
             if c.pointer < -1 or c.pointer > 0:
-                    print('Invalid pointer (',c.pointer,') in gapchunk or endchunk')
+                    ourOS.print_('Invalid pointer (',c.pointer,') in gapchunk or endchunk')
                     invalid = True
             if isinstance(c, endchunk): endcount+=1
         if activecount != 1:
-            print('Invalid form:',activecount,'active chunks in',self.name)
+            ourOS.print_('Invalid form:',activecount,'active chunks in',self.name)
             invalid = True
         if endcount != 1:
-            print('Invalid form: endcount (',endcount,') is illegal in',self.name)
+            ourOS.print_('Invalid form: endcount (',endcount,') is illegal in',self.name)
             invalid = True
         if not isinstance(self.formlist[len(self.formlist)-1], endchunk):
-            print('Invalid form: endchunk not at end of',self.name)
+            ourOS.print_('Invalid form: endchunk not at end of',self.name)
             invalid = True
-        if invalid: print('Invalid form',self.name, ': [', *self.formlist)
+        if invalid: ourOS.print_('Invalid form',self.name, ': [', *self.formlist)
         
     def __str__(self):  # used in PF, so the str functions put in the form pointer as <^>
         return ''.join(map(str, self.formlist))
@@ -530,24 +486,15 @@ class termError(Exception):
         return ' '.join(map(str,self.args))
 
 class TracConsole(object):
-    def __init__(self, *args):
+    def __init__(self):
         self.inbuf = ''
-        self.settype(*args)
-        
-    def gettype(self):
-        return self.contype
-    
-    def settype(self, *args):
-        self.contype = args[0]
-        if len(args) > 1 and mode.unforgiving:
-            prim.TMAError(1+len(args), 2)
     
     def inkey(self):
         if self.inbuf:
             ch = self.inbuf[0]
             self.inbuf = self.inbuf[1:]
         else:
-            ch = getraw()
+            ch = ourOS.getraw()
         code = ord(ch)
         if code == 3: 
             raise KeyboardInterrupt     # ^C
@@ -563,11 +510,11 @@ class TracConsole(object):
         return ch
     
     def bell(self):
-        print( chr(7), end='')
+        ourOS.print_( chr(7), end='')
         return
     
     def printstr(self,text):
-        print(text, end='')
+        ourOS.print_(text, end='')
         return
 
 class BasicConsole(TracConsole):
@@ -575,6 +522,9 @@ class BasicConsole(TracConsole):
     is for a basic terminal, e.g. the Windows command line, which doesn't
     have the vt100/xterm escape sequences
     """
+    def __init__(self):
+        self.contype = 'b'
+        TracConsole.__init__(self)
     
     def readstr(self, *args):
         """New, improved readstr function. Rather than using stdin.readline(),
@@ -592,7 +542,6 @@ class BasicConsole(TracConsole):
         2. Doesn't work well when you backspace over a printed-out \ from 
             the echoing mode.
         """
-        global rshistory
         string = ''
         mc = metachar.get()
         echoing = False #set to true when we BS past \n
@@ -606,29 +555,24 @@ class BasicConsole(TracConsole):
                 # print a space over the character immediately preceding the cursor
                 # but we can't backspace over newlines
                 if string[-1] == '\n' and not echoing:
-                    print('\\',end='')
+                    ourOS.print_('\\',end='')
                     echoing = True
-                print(string[-1] if echoing else '\b \b',end='')
+                ourOS.print_(string[-1] if echoing else '\b \b',end='')
                 string = string[:-1]
                 if string == '' and echoing:
-                    print('\\',end='')
+                    ourOS.print_('\\',end='')
                     echoing = False
             else:   #anything else
                 if echoing:
-                    print('\\',end='')
+                    ourOS.print_('\\',end='')
                     echoing = False
-                print(ch, end='')
+                ourOS.print_(ch, end='')
                 if ch == mc:
-                    rshistory.append(string)
                     return string
                 else:
                     string += ch
 
 class LineConsole(TracConsole):
-#     def __init__(self):
-#         self.contype = 'l'
-#         TracConsole.__init__(self)
-        
     def inkey(self):
         if self.inbuf == '':
             self.inbuf = sys.stdin.readline()
@@ -642,7 +586,6 @@ class LineConsole(TracConsole):
         return self.inkey()
     
     def readstr(self, *args):
-        global rshistory
         if mode.unforgiving and len(args) > 0:
             prim.TMAError( len(args), 0 )
         string = ''
@@ -653,39 +596,46 @@ class LineConsole(TracConsole):
                 if mc != '\n' and self.inbuf[0] == '\n':
                     #strip \n immed following meta
                     self.inbuf = self.inbuf[1:]
-                rshistory.append(string)
                 return string
             else:
                 string += ch
 
-DEFROWS = 24
-DEFCOLS = 80
-MINROWS = 4
-MINCOLS = 10
-
 class xConsole(TracConsole):
-    global ESC, DEFROWS, DEFCOLS, MINROWS, MINCOLS
+    global ESC  # commented out ourOS
     ESC = chr(27)
-
+    
+    DEFROWS = 24
+    DEFCOLS = 80
+    MINROWS = 4
+    MINCOLS = 10
+    
+    BS = 8
+    DEL = 127
+    
     def __init__(self, *args):
-        (self.termrows, self.termcols) = (DEFROWS, DEFCOLS)
-        self.carriagepos = 0    #self.carriagepos is needed for the history scrollback
+        (self.termrows, self.termcols) = (xConsole.DEFROWS, xConsole.DEFCOLS)
+        self.carriagepos = 0
         TracConsole.__init__(self, *args)
     
     def settype(self, type, *args):
         self.contype = type
+        self.trylocpoll = True
         if type == 'x':
+            self.trysizepoll = True
+            self.trysizeenv = False # 2nd option
             if mode.unforgiving and len(args) > 0:
                 raise prim.TMAError(2+len(args),2)
             return
         elif type == 'v':
+            self.trysizepoll = False
+            self.trysizeenv = False # 2nd option
             if len(args) == 0: return
             if mode.unforgiving and len(args) > 2:
                 raise prim.TMAError(4+len(args),4,atmost=True)
             try:
-                rows = int(args[0])
-                cols = int(args[1])
-                if rows >= MINROWS and cols >= MINCOLS:
+                cols = int(args[0])
+                rows = int(args[1])
+                if rows >= xConsole.MINROWS and cols >= xConsole.MINCOLS:
                     (self.termrows, self.termcols) = (rows, cols)
                 else:
                     raise ValueError
@@ -695,11 +645,9 @@ class xConsole(TracConsole):
             assert False
     
     def gettype(self):
-        if self.contype == 'v':
-            return self.contype+','+str(self.termrows)+','+str(self.termcols)
-        else:
-            assert self.contype == 'x'
-            return self.contype
+        tc.refreshsize()
+        return self.contype + ',' + str(self.numcols) + ',' + \
+            str(self.numrows)
     
     def adjustcarriage(self,t):
         p = t.split('\n')
@@ -712,13 +660,52 @@ class xConsole(TracConsole):
         self.adjustcarriage(text)
         return
     
+    #TODO: move the guts of this to theOS, and use
+    #http://stackoverflow.com/questions/566746/how-to-get-console-window-width-in-python
+    def refreshsize(self):
+        if self.contype == 'v':
+            return
+        self.numrows = None
+        if self.trysizepoll:
+            ourOS.print_(ESC + '[1 8t', end='')
+            (self.numrows, self.numcols) = self.getcoords('t','8',';')
+            if self.numrows == None:
+                self.trysizepoll = False    #don't bother a 2nd time
+                self.trysizeenv = True      #2nd choice
+        if self.trysizeenv:
+            e = os.getenv('ANSICON')
+            if e == None:
+                self.trysizeenv = False
+            else:
+                m = InputString.ANSIre.match(e)
+                try:
+                    if m == None:
+                        raise ValueError
+                    self.numcols = int(m.group(3))   #WxH
+                    self.numrows = int(m.group(4))
+                except ValueError:
+                    raise termError('ANSICON misformatted: ',e)
+        if self.numrows == None:    #fail x 2
+            self.contype = 'v'    #drop to vt100 mode, if not there already
+            assert self.trysizepoll == False
+            assert self.trysizeenv == False
+            (self.numrows, self.numcols) = (self.termrows, self.termcols)
+    
     def getcoords(self, term, *args):
-        """this is a utility function to input the results of screen-polling
-        escape sequences"""
-        ch = getraw()
-        while ch != ESC:
-            self.inbuf += ch
-            ch = getraw()
+        """this is a utility function to input the results of device-polling
+        escape sequences.
+        If it takes > 50 msec to get to ESC, we conclude that device-polling
+        is not working."""
+        import time
+        time0 = time.time()
+        while True:
+            ch = ourOS.getraw()
+            if (time.time() - time0) <= 0.05:
+                if ch == ESC: break
+                self.inbuf += ch
+            else:
+                self.inbuf += ch
+                return (None, None)
         seq = self.geteseq()
         start = ['['] + list(args)
         while len(start) > 0:
@@ -750,7 +737,7 @@ class xConsole(TracConsole):
                     
         seqlist = []
         while True:
-            ch = getraw()
+            ch = ourOS.getraw()
             code = ord(ch)
             seqlist.append(ch)
             if len(seqlist) == 1:
@@ -777,24 +764,25 @@ class xConsole(TracConsole):
             and hit enter; it prints a blank line, unlike hitting enter at the very end of
             the line
         """
-        global rshistory
         mc = metachar.get()
         self.histpointer = None
         #handle arguments to RS
-        if mode.extended and len(args) > 0:
+        if mode.extended:
             if mode.unforgiving and len(args) > 2:
                 prim.TMAError( len(args), 2, atmost=True )
-            startstr = args[0]
             if len(args) < 2: startpoint = ''
             else: startpoint = args[1]
+            if len(args) < 1: startstr = ''
+            else: startstr = args[0]
             (startnum, dummy, sign) = mathprim.parsenum(startpoint)
             if sign == '-':
                 startnum += len(startstr)
             if startnum < 0: startnum = 0
             startnum = min(startnum, len(startstr) )
             self.inp = InputString(startstr, startnum)
-            print(startstr, end='')
-            self.inp.cursorisat(len(startstr))
+            ourOS.print_(startstr, end='')
+            self.refreshize()
+            self.inp.cursorisat( len(startstr) )
             self.inp.curtoinspoint()
         else:
             if mode.unforgiving and len(args) > 0:
@@ -802,49 +790,47 @@ class xConsole(TracConsole):
             self.inp = InputString('',0)
         
         while True:             #RS main loop
-            ch = self.inkey()
+            try:
+                ch = self.inkey()
+            except (KeyboardInterrupt, tracHalt):
+                self.inp.eprint('')
+                raise
             code = ord(ch)
-            if ch == ESC:
-                eseq = self.geteseq()
-                ch = eseq.pop(0)
-                if ch == '[':
-                    if eseq[0] == 'A':                  #up arrow
-                        self.inp.rowup()
-                    elif eseq[0] == 'B':                #down arrow
-                        self.inp.rowdown()
-                    elif eseq[0] == 'D':                #left arrow
-                        self.inp.charleft()
-                    elif eseq == ['1',';','2','D']:     #shift-left arrow
-                        self.inp.rowleft()
-                    elif eseq[0] == 'C':                #right arrow
-                        self.inp.charright()
-                    elif eseq == ['1',';','2','C']:     #shift-right arrow
-                        self.inp.rowright()
-                    elif eseq == ['3','~']:             #delete
-                        if self.inp.inspoint == len(self.inp.rstring):
-                            self.bell() #already at end, nothing to del
-                            continue
-                        self.inp.curatinspoint()
-                        head = self.inp.rstring[0:self.inp.inspoint]
-                        tail = self.inp.rstring[self.inp.inspoint+1:]
-                        self.inp.rstring = head+tail
-                        self.inp.redolengths()
-                        self.inp.eprint(tail)
-                        if self.inp.inspoint == len(self.inp.rstring):
-                            continue        #just deleted last char
-                        self.inp.cursorisat(len(self.inp.rstring), reusesize=True )
-                        self.inp.curtoinspoint()
-                    else:
-                        self.bell()     #unrecognized CSI (=esc-[ sequence)
-                    continue    # sequence starts with [ (i.e. valid CSI) don't want to fall through
-                else:   #eseq doesn't start with [
-                    if ch == 'b' or ch == 'f':                       #alt-left arrow
-                        self.dohist(ch)
-                        continue
-                    self.bell()     #better late than never
-                    code = ord(ch)  #and now fall through to code below with next character
-            if code == 13: ch = '\n'    # warning: ch and code won't match after this point, OK?
-            if (code >= 32 and code < 127) or ch == '\n':   #printable
+            if (code < 32 or code >=127) and ch != '\n':
+                code = ourOS.rsctrl(self.inp, code)
+                if code == None:    #nothing more to process
+                    continue
+            if code == xConsole.BS: # backspace
+                if self.inp.inspoint == 0:
+                    self.bell()
+                    continue
+                self.inp.curatinspoint()
+                tail = self.inp.rstring[self.inp.inspoint:]
+                self.inp.inspoint -= 1
+                head = self.inp.rstring[0:self.inp.inspoint]
+                self.inp.rstring = head+tail
+                self.inp.redolengths()
+                self.inp.curtoinspoint()
+                self.inp.eprint(tail)
+                if self.inp.inspoint == len(self.inp.rstring):
+                    continue        #already in the right place
+                self.inp.cursorisat(len(self.inp.rstring) )
+                self.inp.curtoinspoint()
+            elif code == xConsole.DEL:
+                if self.inp.inspoint == len(self.inp.rstring):
+                    self.bell() #already at end, nothing to del
+                    continue
+                self.inp.curatinspoint()
+                head = self.inp.rstring[0:self.inp.inspoint]
+                tail = self.inp.rstring[self.inp.inspoint+1:]
+                self.inp.rstring = head+tail
+                self.inp.redolengths()
+                self.inp.eprint(tail)
+                if self.inp.inspoint == len(self.inp.rstring):
+                    continue        #just deleted last char
+                self.inp.cursorisat( len(self.inp.rstring) )
+                self.inp.curtoinspoint()
+            else:   #printable or \n
                 self.inp.curatinspoint()
                 head = self.inp.rstring[0:self.inp.inspoint]
                 if ch == mc:    #meta: delete the rest and return the head
@@ -852,7 +838,7 @@ class xConsole(TracConsole):
                     self.adjustcarriage(head + mc)   #remember, mc could be \n
                     self.inp.rstring = head
                     self.inp.redolengths()
-                    rshistory.append(head)
+                    self.history.append(self.inp)
                     return head
                 tail = self.inp.rstring[self.inp.inspoint:]
                 self.inp.rstring = head + ch + tail
@@ -867,40 +853,15 @@ class xConsole(TracConsole):
                 self.inp.inspoint += 1
                 if self.inp.inspoint == len(self.inp.rstring):
                     continue        #already in the right place
-                self.inp.cursorisat(len(self.inp.rstring), reusesize=True )
+                self.inp.cursorisat( len(self.inp.rstring) )
                 self.inp.curtoinspoint()
-                continue
-            elif code == 127: # backspace
-                if self.inp.inspoint == 0:
-                    self.bell()
-                    continue
-                self.inp.curatinspoint()
-                tail = self.inp.rstring[self.inp.inspoint:]
-                self.inp.inspoint -= 1
-                head = self.inp.rstring[0:self.inp.inspoint]
-                self.inp.rstring = head+tail
-                self.inp.redolengths()
-                self.inp.curtoinspoint()
-                self.inp.eprint(tail)
-                if self.inp.inspoint == len(self.inp.rstring):
-                    continue        #already in the right place
-                self.inp.cursorisat(len(self.inp.rstring), reusesize=True )
-                self.inp.curtoinspoint()
-                continue
-            elif code == 3: # ^C
-                self.inp.curatinspoint()
-                self.inp.eprint('')
-                raise KeyboardInterrupt
-            elif code == 4:
-                self.inp.curatinspoint()
-                self.inp.eprint('')
-                raise tracHalt
-            else:               #unrecognized, probably unicode sequence
-                self.bell()     # end of RS main loop
-    
+        # end of RS main loop
+        
     def dohist(self, dir):
         if self.histpointer == None:    #set up history
-            self.histcopy = map( lambda x: InputString(x,len(x)), rshistory)
+            self.histcopy = []
+            for x in self.history:
+                self.histcopy.append(x.copy())
             self.histpointer = len(self.histcopy)
             self.histcopy.append(self.inp)
         if dir == 'b':       #move back
@@ -922,15 +883,13 @@ class xConsole(TracConsole):
         
         #now need to show the new self.inp
         newinp = self.histcopy[self.histpointer]
-        #newinp.redolengths()
-        newinp.numrows = self.inp.numrows
-        newinp.numcols = self.inp.numcols
+        self.refreshsize()
         newinp.cursorisat(0)
         newinp.eprint(newinp.rstring)
         self.inp = newinp
         if newinp.inspoint == len(newinp.rstring):
             return        #already in the right place
-        newinp.cursorisat(len(newinp.rstring), reusesize=True )
+        newinp.cursorisat( len(newinp.rstring) )
         newinp.curtoinspoint()
         return
 
@@ -986,7 +945,7 @@ class InputString(object):
         screen
     rowloc, colloc: the screen coordinates of the current cursor
     numrows, numcols: the size of the screen, either returned by getscrsize()
-    rowdelta: the number of screen rows from the start of "line 0" (i.e. the 
+    rowsdown: the number of screen rows from the start of "line 0" (i.e. the 
         beginning of the "virtual line" that input string stars on) to the
         current screen cursor location
     hanging: True if the actual cursor location is intended to be in hanging 
@@ -999,11 +958,16 @@ class InputString(object):
     tc.carriagepos is the position within the current "line". It is set by PS, 
         and at the END of RS
     """
+    import re
+    ANSIre = re.compile('(\d+)x(\d+)\s*\((\d+)x(\d+)\)\Z')  #wxh(WxH)
     
     def __init__(self, str, point):
         self.rstring = str
         self.inspoint = point
         self.redolengths()
+        tc.refreshsize()
+        self.posfrompoint(point)    #initialize self.hanging, so hitting
+            # ^C or ^D as first input char doesn't generate exception
     
     def copy(self):
         cop = InputString(self.rstring, self.inspoint)
@@ -1030,16 +994,21 @@ class InputString(object):
         rd = 0
         for self.line in range(len(self.linelengths)):
             ll = self.linelengths[self.line]
+            self.colloc = self.pos % tc.numcols + 1
             if self.pos == 0 or self.pos < ll:    #not hanging, for sure
-                self.rowsdown = rd + self.pos // self.numcols
+                self.rowsdown = rd + self.pos // tc.numcols
                 self.hanging = False
                 return
             if self.pos == ll:  #hanging, if numcols goes into chars evenly
-                self.rowsdown = rd + (self.pos-1) // self.numcols
-                self.hanging = (self.pos % self.numcols) == 0
+                self.rowsdown = rd + (self.pos-1) // tc.numcols
+                if self.colloc == 1:
+                    self.hanging = True
+                    self.colloc = tc.numcols
+                else:
+                    self.hanging = False
                 return
             self.pos -= (ll + 1)       # count 1 for the \n
-            rd += max(0, ll-1) // self.numcols + 1           # same here
+            rd += max(0, ll-1) // tc.numcols + 1           # same here
                 # use ll-1 because an 80-char line on an 80-char screen won't 
                 # wrap, i.e. the returned value says "if I just printed that, 
                 # how many lines down will I be," rather than "if I want to 
@@ -1048,7 +1017,7 @@ class InputString(object):
         raise termError("Logic error (posline): curpoint=",self.curpoint, \
             'linelengths=',self.linelengths, ", overflow=",self.pos)
 
-    def cursorisat(self, point, reusesize=None):
+    def cursorisat(self, point):
         """
         "point" is the position in the RS input string where the cursor is 
         supposed to be currently
@@ -1064,28 +1033,15 @@ class InputString(object):
         it gets the current location and then (partially) validates that the 
             current screen cursor position corresponds to 'point'
         """
-        if reusesize == None:
-            (self.numrows, self.numcols) = self.getscrsize()
-        self.posfrompoint(point)
-        (self.rowloc, self.colloc) = self.getscrloc()
-        self.validatecursor()
+#         if reusesize == None:
+#             tc.refreshsize()
+        self.posfrompoint(point)    # depends on tc.numcols
+        self.refreshloc()           # gets rowloc, if available
     
     def curatinspoint(self):
+        tc.refreshsize()
         self.cursorisat(self.inspoint)
     
-    def validatecursor(self):
-        # validate the cursor location
-        shouldbe = self.pos % self.numcols + 1
-        if not self.hanging and shouldbe == self.colloc:
-            return
-        if self.hanging and (self.colloc == self.numcols) and \
-                (self.pos == self.linelengths[self.line]):  #hanging?
-            return
-        else:
-            raise termError("Alignment error: rowloc=", self.rowloc,'colloc=', \
-                self.colloc, 'shouldbe=', shouldbe, 'posnow=', self.pos, \
-                'line=', self.line)
-
     def cursorto(self, newpoint):
         """
         cursorto moves the screen cursor from curpoint to 'newpoint'.
@@ -1096,24 +1052,33 @@ class InputString(object):
         fromrow = self.rowloc
         rowsup = self.rowsdown
         self.posfrompoint(newpoint)
-        self.rowloc += self.rowsdown - rowsup
-        if self.rowloc <= 0:
-            #TODO this should not be termError? those should only be for things that
-            raise termError("<ERR> New cursor position is off the top of the screen")
-        self.colloc = self.pos % self.numcols + 1
-        if self.hanging:
-            assert self.colloc == 1
-            #self.bell() #TODO remove after debugging
-            self.colloc = self.numcols
-        self.setscrloc()
-        self.validatecursor()   #this is new 1/11/15
+        rowdelta = self.rowsdown - rowsup
+        if self.rowloc != None:
+            self.rowloc += rowdelta
+            if self.rowloc <= 0:
+                #TODO this should not be termError? those should only be for things that
+                raise termError("<ERR> New cursor position is off the top of the screen")
+        self.scrgoto(rowdelta,self.colloc)
+        #what follows is solely for validation
+        shouldbe = self.rowloc
+        self.refreshloc()
+        if self.rowloc != shouldbe:
+            raise termError('Row alignment error: rowloc=', shouldbe, \
+                ' but actually is ', self.rowloc, 'pos=', self.pos, \
+                'line=', self.line)
         return
     
     def curtoinspoint(self):
         self.cursorto(self.inspoint)
     
-    def setscrloc(self):
-        print(ESC + '[' + str(self.rowloc) + ';' + str(self.colloc) + 'H', end='')
+    def scrgoto(self, delta, col):
+        # note that using E/F instead of B/A might enable rollback on the 
+        # screen, eliminating the error message in cursorto()
+        if delta < 0:
+            ourOS.print_(ESC + '[' + str(-delta) + 'A', end='')
+        elif delta > 0:
+            ourOS.print_(ESC + '[' + str(delta) + 'B', end='')
+        ourOS.print_(ESC + '[' + str(col) + 'G', end='')
     
     def eprint(self, s):
         """erase to end of screen. eprint is used (a) when inserting the meta 
@@ -1122,24 +1087,29 @@ class InputString(object):
         """
         start = 0
         if self.hanging:
-            if self.rowloc == self.numrows:   #last character on screen
+            if self.rowloc == tc.numrows:   #last character on screen
                 if s == '': return
                 self.rowloc -= 1  #the screen will roll up 1
-            print('\n',end='')
+            ourOS.print_('\n',end='')
             if s == '':
-                print(ESC+'[J', end='')
-                self.setscrloc()
+                ourOS.print_(ESC+'[J', end='')
+                self.scrgoto(-1, tc.numcols)  # go back up
                 return
             if s[0] == '\n': start = 1
-        print(ESC+'[J'+s[start:], end='')
+        ourOS.print_(ESC+'[J'+s[start:], end='')
     
-    def getscrsize(self):
-        print(ESC + '[1 8t', end='')
-        return tc.getcoords('t','8',';')
-    
-    def getscrloc(self):
-        print(ESC + '[6n', end='')
-        return tc.getcoords('R')
+    def refreshloc(self):
+        if tc.trylocpoll:
+            ourOS.print_(ESC + '[6n', end='')
+            (self.rowloc, cl) =  tc.getcoords('R')
+            if cl == None:  #couldn't get from poll
+                tc.trylocpoll = False
+            elif self.colloc != cl:
+                raise termError('Column alignment error: colloc=', \
+                    self.colloc, ' but actually is ', cl, 'pos=', self.pos, \
+                    'line=', self.line)
+        else:
+            self.rowloc = None
     
     def charleft(self):
         if self.inspoint == 0:
@@ -1165,13 +1135,13 @@ class InputString(object):
             tc.bell()
             return
         self.curatinspoint()
-        if self.line == 0 or self.pos >= self.numcols:   #go as straight up as poss
-            self.inspoint = max(0, self.inspoint - self.numcols - (1 if self.hanging else 0) )
+        if self.line == 0 or self.pos >= tc.numcols:   #go as straight up as poss
+            self.inspoint = max(0, self.inspoint - tc.numcols - (1 if self.hanging else 0) )
             self.curtoinspoint()
             return
         prevll = self.linelengths[self.line-1]
         onprevrow = 0 if prevll == 0 else \
-            (prevll - 1) % self.numcols + 1  #number of chars on the prev row
+            (prevll - 1) % tc.numcols + 1  #number of chars on the prev row
         # OK, we want to move straight up, how much do we move self.inspoint?
         # if the last row were the full width of the screen, self.inspoint
         # would go back numcols+1 (the extra 1 for the \n). But that is going
@@ -1195,16 +1165,16 @@ class InputString(object):
         self.curatinspoint()
         curll = self.linelengths[self.line]
         rump = curll - self.pos  #how much left on this line?
-        if rump >= self.numcols:  
-            self.inspoint += self.numcols
+        if rump >= tc.numcols:  
+            self.inspoint += tc.numcols
             #check if this leaves in hanging position
-            if rump == self.numcols and self.colloc == 1: self.inspoint += 1
+            if rump == tc.numcols and self.colloc == 1: self.inspoint += 1
         #already on last line, just go to the end
         elif self.line == len(self.linelengths) - 1:
             self.inspoint = len(self.rstring)
         #some of this line, hangs over, but not enough to go straight down,
         #go to the end of it
-        elif rump + self.colloc > self.numcols + 1:
+        elif rump + self.colloc > tc.numcols + 1:
             self.inspoint += rump
         else:   # go to next line
             nextll = self.linelengths[self.line + 1]
@@ -1216,7 +1186,7 @@ class InputString(object):
     
     def rowleft(self):    #move cursor back to start of row
         self.curatinspoint()
-        if self.colloc == 1:     #already there?
+        if self.colloc == 1 or self.inspoint == 0:     #already there?
             tc.bell()
             return
         self.inspoint -= self.colloc - (1 if not self.hanging else 0)
@@ -1233,7 +1203,7 @@ class InputString(object):
         if charsleft == 0:      #already there
             tc.bell()
             return
-        colsleft = self.numcols - self.colloc
+        colsleft = tc.numcols - self.colloc
         gohang = ( charsleft - colsleft ) == 1
         if colsleft == 0 and not gohang:    #already there
             tc.bell()
@@ -1373,16 +1343,16 @@ class mode:     # for MO
             syntchar.set( '' if len(args) == 1 else args[1], metachar.get() )
             return
         if modearg == 'pm':
-            print('<MO>: ' + ('' if mode.extended else 'no ') + \
+            ourOS.print_('<MO>: ' + ('' if mode.extended else 'no ') + \
                 'extended primitives; ' + ('un' if mode.unforgiving else '') \
                 + 'forgiving with errors.', end='')
             return
         if modearg == 'rt': #reactive typewriter
             if len(args) == 1:
-                return tc.gettype()
+                return tc.contype
             else:
                 assert len(args) > 1
-                mode.setcontype(args[1].lower(),*args[2:])
+                mode.setcontype(args[1].lower())
                 return
         if modearg == 'e':
             if len(args) == 1:
@@ -1412,8 +1382,8 @@ class mode:     # for MO
     
     @staticmethod
     def setcontype(*args):
-        global tc, condict, contypes
-#        print('setcontype: c=',c,' args= ',args)
+        global tc, condict      #, contypes
+#        ourOS.print_('setcontype: c=',c,' args= ',args)
         c = args[0]
         oldtc = tc
         try:
@@ -1424,9 +1394,17 @@ class mode:     # for MO
                 tc.settype(*args) #because xConsole handles both x and v
         except KeyError:
             raise primError(False, 'unrecognized console type: ', c)
-        except primError:
-            tc = oldtc
-            raise
+        tc = condict[c]
+        if tc == None:
+            if c == 'b':
+                tc = condict['b'] = BasicConsole()
+            elif c == 'l':
+                tc = condict['l'] = LineConsole()
+            elif c == 'x':
+                tc = condict['x'] = xConsole()
+            else:
+                assert False
+        assert c == tc.contype
     
 def trace(*args):       # a flag, used in TN and TF
     global tracing
@@ -1644,10 +1622,10 @@ def eval(arglist, act):     # when a function call is assembled by the parser, t
     global activeImpliedCall
     if trace():
         s = syntchar.get()
-        print(s+'/' if act else s+s+'/',arglist[0],end=' ')
+        ourOS.print_(s+'/' if act else s+s+'/',arglist[0],end=' ')
         for a in arglist[1:]:
-            print('*',a,end=' ')
-        print('/',end=' ')
+            ourOS.print_('*',a,end=' ')
+        ourOS.print_('/',end=' ')
         input = sys.stdin.readline()
         if input != '\n':
             trace(False)
@@ -1739,7 +1717,7 @@ prim( 'eb', block.erase )
 
 prim( 'ln', ( lambda x: x.join(forms) ), exact=1 )
 
-prim( 'pf', ( lambda x: print(form.find(x)) ), exact=1 )
+prim( 'pf', ( lambda x: ourOS.print_(form.find(x)) ), exact=1 )
 
 prim( 'tn', ( lambda: trace(True) ), exact=0 )
 
@@ -1749,30 +1727,177 @@ prim( 'hl', tracHalt, exact=0 )
 
 prim( 'mo', mode.setmode )
 
-def main(args):
+class TheOS:
+    """OS-dependent stuff goes here.
+    The code for getraw() comes from:
+    http://code.activestate.com/recipes/134892/
+    and screen-polling code for the future can be found at:
+    http://stackoverflow.com/questions/27750135/
+    """
+    @staticmethod
+    def whichOS():
+        """note that this method is fixed at compile time; for a runtime-
+        based method, or for the origin of this code, see:
+        http://stackoverflow.com/questions/4553129/when-to-use-os-name-sys-platform-or-platform-system
+        """
+        if os.name == 'nt':
+            return WindowsOS()
+        elif os.name == 'posix':
+            if sys.platform == 'cygwin':
+                return CygwinOS()
+            else:
+                return PosixOS()
+        else:
+            print('Unrecognized OS:',os.name)
+            return UnknownOS()
+    
+    def print_(self,*args,**kwargs):
+        print(*args,**kwargs)
+        return
+    
+class WindowsOS(TheOS):
+    def getraw(self):
+        import msvcrt
+        return msvcrt.getch()
+    
+    def defaultterm(self):
+        return 'b'
+    
+    def rsctrl(self, inp, code):
+        if code == 8:
+            return xConsole.BS
+        if code == 127:         # TODO check this
+            return xConsole.DEL
+        if code == 224:      # alpha
+            ch = tc.inkey()
+            if ch == 'H':                  #up arrow
+                inp.rowup()
+            elif ch == 'P':                #down arrow
+                inp.rowdown()
+            elif ch == 'K':                #left arrow
+                inp.charleft()
+            elif ch == 'M':                #right arrow
+                inp.charright()
+            elif ch == 'S':                #right arrow
+                return xConsole.DEL # at least for fn-delete on VMWare
+            else:
+                tc.bell()     #for the alpha, better late than never
+                tc.inbuf = ch + tc.inbuf    # reprocess the character
+        elif code == 0:     # NUL
+            ch = tc.inkey()
+            code = ord(ch)
+            if code == 155:         #alt-left arrow
+                inp.rowleft()
+            elif code == 157:       #alt-right arrow
+                inp.rowright()
+            elif code == 152:       #alt-up arrow
+                tc.dohist('b')
+            elif code == 160:       #alt-down arrow
+                tc.dohist('f')
+            else:
+                tc.bell()     #for the alpha, better late than never
+                tc.inbuf = ch + tc.inbuf    # reprocess the character
+        else:
+            tc.bell()
+        #eqivalent to "return None"
+
+class PosixOS(TheOS):
+    def getraw(self):
+        import sys, tty, termios, fcntl, os
+        fd = sys.stdin.fileno()
+        old_attr = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_attr)
+        return ch
+    
+    def defaultterm(self):
+        return 'x'
+    
+    def rsctrl(self, inp, code):
+        if code == 127:
+            return xConsole.BS
+        if code == 27:      #ESC
+            eseq = tc.geteseq()
+            ch = eseq.pop(0)
+            if ch == '[':
+                if eseq[0] == 'A':                  #up arrow
+                    inp.rowup()
+                elif eseq[0] == 'B':                #down arrow
+                    inp.rowdown()
+                elif eseq[0] == 'D':                #left arrow
+                    inp.charleft()
+                elif eseq == ['1',';','2','D']:     #shift-left arrow
+                    inp.rowleft()
+                elif eseq[0] == 'C':                #right arrow
+                    inp.charright()
+                elif eseq == ['1',';','2','C']:     #shift-right arrow
+                    inp.rowright()
+                elif eseq == ['3','~']:             #delete
+                    return xConsole.DEL
+                else:
+                    self.bell()     #unrecognized CSI (=esc-[ sequence)
+            else:   #eseq doesn't start with [
+                if ch == 'b' or ch == 'f':                       #alt-left arrow
+                    tc.dohist(ch)
+                else:
+                    tc.bell()     #for the ESC, better late than never
+                    tc.inbuf = ch + tc.inbuf    # reprocess the character
+        #eqivalent to "return None"
+
+class CygwinOS(PosixOS):
+    def __init__(self):
+        # linesep code here
+        pass
+    
+    def print_(self,*args,**kwargs):
+        """this is a workaround for a weird cygwin xterm bug that \n becomes
+        just lf at times when combined with getraw
+        http://stackoverflow.com/questions/28162914/
+        """
+        args = map(lambda x: '\r\n'.join(x.split('\n')), args)
+        if 'end' in kwargs:
+            PosixOS.print_(self, *args, **kwargs)
+        else:
+            PosixOS.print_(self, *args, end='\r\n', **kwargs)
+    
+class UnknownOS(TheOS):
+    #TODO add getraw method to reset to line-mode
+    def defaultterm(self):
+        return 'l'
+
+def main(*args):
     global syntchar, forms, metachar, activeImpliedCall, tracing
-    global getraw, condict, contypes, tc, rshistory
-    getraw = _Getch()
+    global ourOS, condict, contypes, tc, rshistory
+    ourOS = TheOS.whichOS()
     condict = dict(b=None, l=None, v= None, x=None)
     contypes = dict(b=BasicConsole, l=LineConsole, v=xConsole, x=xConsole)
-    tc = None   # because setcontype saves this for error recovery
-    mode.setcontype('x' if _Getch.the_os == 'u' else 'b')  #default if console type by OS
     rshistory = []
     forms = {}      # the defined strings
     syntchar = syntclass('#')
     metachar = specchar("'")
     activeImpliedCall = False   # in case there is a call to NI before an implied call
     trace(False)
+    tc = None   # because setcontype saves this for error recovery
+    for x in args:
+        if len (x)>4 and x[0:4] == '-mo,':
+            mode.setmode( *(x[4:].split(',')) )
+        else:
+            print('Error: unrecognized paramater (',x,')')
+    if tc == None:  #default console type by OS, if not set by switches
+        mode.setcontype(ourOS.defaultterm())
     psrs()
 
 def psrs():     # the main loop
-    global syntchar
+    #global syntchar
     while True:
         strpsrs = syntchar.get() + '(ps,' + syntchar.get() + '(rs))'
         tc.printstr(strpsrs+'\n> ')
         try:
             remainder = ''.join( parse(strpsrs) )
-            print('')    #blank line
+            ourOS.print_('')    #blank line
             if remainder != '':
                 raise tracError(False, \
                     '<UNF> unbalanced parens: after parsing remainder = ' + remainder)
@@ -1780,16 +1905,16 @@ def psrs():     # the main loop
             return
         except tracError as e:
             if mode.unforgiving or e.args[0]:
-                print( str(e) )
+                ourOS.print_( str(e) )
             else:
-                print( '' )
+                ourOS.print_( '' )
         except termError as e:
-            print( str(e) )
+            ourOS.print_( str(e) )
         except KeyboardInterrupt:   # ^C or non-empty input while trace on
-            print('<INT>')
+            ourOS.print_('<INT>')
         except RuntimeError as e:   # mostly recursion depth exceeding (e.g #(fact,1000) )
-            print( '<SCE>', str(e) )
+            ourOS.print_( '<SCE>', str(e) )
         finally:
             for f in forms: forms[f].validate() # for debugging, OK to comment out
 
-if __name__ == '__main__': main(sys.argv[1:])
+if __name__ == '__main__': main(*sys.argv[1:])
