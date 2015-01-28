@@ -63,12 +63,8 @@ x, b, or l.  #(mo,rt) returns the current mode, in lower case.  Incidentally,
             line.  I hope someone likes this because it was truly painful to 
             implement.  xterm mode drops back to vterm mode if there is no
             response to device screen-size polls.
-<<<<<<< HEAD
-=======
-
 #(mo,rt) returns the mode; in the case of x or v it returns mode,rows,cols.
 So to see those, you need ##(mo,rt)
->>>>>>> adding-vt100-mode
 
 6. In xterm mode of #5 above, I have implemented an extended version of
 read string: #(rs,init string,displacement): it is as if the user has already 
@@ -497,10 +493,8 @@ class TracConsole(object):
         self.settype(*args)
     
     def settype(self,*args):
-        self.contype = args[0].lower()
         prim.condTMA(args, 1, offset=1)
-#         if len(args) > 1 and Mode.unforgiving():
-#             prim.TMAError(len(args)+1, 2)
+        self.contype = args[0].lower()
     
     def gettype(self):
         return self.contype
@@ -632,23 +626,14 @@ class xConsole(TracConsole):
         TracConsole.__init__(self, *args)
     
     def settype(self, type, *args):
-<<<<<<< HEAD
         self.contype = type.lower()
-=======
-        self.contype = type
->>>>>>> adding-vt100-mode
         self.trylocpoll = True
         if type == 'x':
             self.trysizepoll = True
             self.trysizeenv = False # 2nd option
-<<<<<<< HEAD
             prim.condTMA(args, 0, offset=2)
 #             if len(args) > 0 and Mode.unforgiving():
 #                 raise prim.TMAError(2+len(args),2)
-=======
-            if mode.unforgiving and len(args) > 0:
-                raise prim.TMAError(2+len(args),2)
->>>>>>> adding-vt100-mode
             return
         elif type == 'v':
             self.trysizepoll = False
@@ -670,10 +655,6 @@ class xConsole(TracConsole):
             assert False
     
     def gettype(self):
-<<<<<<< HEAD
-=======
-#        dummystr = InputString('',0)
->>>>>>> adding-vt100-mode
         tc.refreshsize()
         return self.contype + ',' + str(self.numcols) + ',' + \
             str(self.numrows)
@@ -798,8 +779,6 @@ class xConsole(TracConsole):
         #handle arguments to RS
         if len(args) > 0 and Mode.extprim():
             prim.condTMA(args, 2, atmost=True)
-#             if len(args) > 2 and Mode.unforgiving():
-#                 prim.TMAError( len(args), 2, atmost=True )
             startstr = args[0]
             if len(args) < 2:
                 startpoint = '0'
@@ -812,17 +791,11 @@ class xConsole(TracConsole):
             startnum = min(startnum, len(startstr) )
             self.inp = InputString(startstr, startnum)
             ourOS.print_(startstr, end='')
-<<<<<<< HEAD
             self.refreshsize()
-=======
-            self.refreshize()
->>>>>>> adding-vt100-mode
             self.inp.cursorisat( len(startstr) )
             self.inp.curtoinspoint()
         else:
             prim.condTMA(args,0)
-#             if len(args) > 0 and Mode.unforgiving():
-#                 prim.TMAError( len(args), 0 )
             self.inp = InputString('',0)
         
         while True:             #RS main loop
@@ -1418,24 +1391,6 @@ class Mode:     # for MO
             Mode.extended(False)
             return
         modearg = args[0].lower()
-<<<<<<< HEAD
-=======
-        if modearg == 'ms':    # C. A. R. Kagan extension to Modify Syntax character
-            syntchar.set( '' if len(args) == 1 else args[1], metachar.get() )
-            return
-        if modearg == 'pm':
-            ourOS.print_('<MO>: ' + ('' if mode.extended else 'no ') + \
-                'extended primitives; ' + ('un' if mode.unforgiving else '') \
-                + 'forgiving with errors.', end='')
-            return
-        if modearg == 'rt': #reactive typewriter
-            if len(args) == 1:
-                return tc.gettype()
-            else:
-                assert len(args) > 1
-                mode.setcontype(args[1].lower(),*args[2:])
-                return
->>>>>>> adding-vt100-mode
         if modearg == 'e':
             prim.condTMA(args,1)
             Mode.extended(True)
@@ -1449,22 +1404,17 @@ class Mode:     # for MO
             else:
                 Mode.swextended.flip(args[1])
         elif modearg == 'rt': #reactive typewriter
-            Mode.setcontype(*args[1:])
+            return Mode.setcontype(*args[1:])
         else:
             raise primError(False, 'unrecognized mode: ', modearg)
     
     @staticmethod
     def setcontype(*args):
         global tc, condict      #, contypes
-<<<<<<< HEAD
         if len(args) == 0:
 #            tc.bell()
             return tc.gettype()
         c = args[0].lower()
-=======
-#        ourOS.print_('setcontype: c=',c,' args= ',args)
-        c = args[0]
->>>>>>> adding-vt100-mode
         oldtc = tc
         try:
             tc = condict[c]
@@ -1547,6 +1497,8 @@ class prim:
             prim.TMAError(len(args) + offset, num + offset, atmost=atmost)
     
 class mathprim(prim):   # for AD, SU, ML, DV, RM
+    numre = re.compile(r'^(.*?)([+-]?)([0-9]*)\Z',re.DOTALL) #initial ^ is redundant for match
+    
     def __call__(self,*args):
         args = self.fixargs(*args)     #tuples are immutable
         try:
@@ -1572,10 +1524,10 @@ class mathprim(prim):   # for AD, SU, ML, DV, RM
     def tracint(x):     # used above, and also in GR
         return mathprim.parsenum(x)[0]
 
-mathprim.numre = re.compile(r'^(.*?)([+-]?)([0-9]*)\Z',re.DOTALL) #initial ^ is redundant for match
-
 class boolprim(prim):
     """this is really a class for static methods, not one we create instances of"""
+    
+    boolre = re.compile(r'([0-7]*)\Z')
     
     @staticmethod
     def parsebool(arg):
@@ -1630,8 +1582,6 @@ class boolprim(prim):
         else:
             n = -n
             return boolprim.tooct(  val >> n if n < len*3 else 0, len )
-    
-boolprim.boolre = re.compile(r'([0-7]*)\Z')
 
 def parse(active):
     """parse(active) recursively scans an 'active string' of characters as 
@@ -1877,7 +1827,6 @@ class WindowsOS(TheOS):
                 tc.inbuf = ch + tc.inbuf    # reprocess the character
         else:
             tc.bell()
-        #eqivalent to "return None"
 
 class PosixOS(TheOS):
     def getraw(self):
@@ -1923,7 +1872,6 @@ class PosixOS(TheOS):
                 else:
                     tc.bell()     #for the ESC, better late than never
                     tc.inbuf = ch + tc.inbuf    # reprocess the character
-        #eqivalent to "return None"
 
 class CygwinOS(PosixOS):
     def __init__(self):
@@ -1946,8 +1894,6 @@ class UnknownOS(TheOS):
     def defaultterm(self):
         return 'l'
 
-<<<<<<< HEAD
-=======
 class TheOS:
     """OS-dependent stuff goes here.
     The code for getraw() comes from:
@@ -2020,7 +1966,6 @@ class WindowsOS(TheOS):
                 tc.inbuf = ch + tc.inbuf    # reprocess the character
         else:
             tc.bell()
-        #eqivalent to "return None"
 
 class PosixOS(TheOS):
     def getraw(self):
@@ -2066,7 +2011,6 @@ class PosixOS(TheOS):
                 else:
                     tc.bell()     #for the ESC, better late than never
                     tc.inbuf = ch + tc.inbuf    # reprocess the character
-        #eqivalent to "return None"
 
 class CygwinOS(PosixOS):
     def __init__(self):
@@ -2089,15 +2033,10 @@ class UnknownOS(TheOS):
     def defaultterm(self):
         return 'l'
 
->>>>>>> adding-vt100-mode
 def main(*args):
     global syntchar, forms, metachar, activeImpliedCall, tracing
     global ourOS, condict, contypes, tc, rshistory
     ourOS = TheOS.whichOS()
-<<<<<<< HEAD
-=======
-#    getraw = _Getch()
->>>>>>> adding-vt100-mode
     condict = dict(b=None, l=None, v= None, x=None)
     contypes = dict(b=BasicConsole, l=LineConsole, v=xConsole, x=xConsole)
     rshistory = []
@@ -2108,7 +2047,6 @@ def main(*args):
     trace(False)
     tc = None   # because setcontype saves this for error recovery
     for x in args:
-<<<<<<< HEAD
         if x == '-mo':
             Mode.setmode()
         elif len (x)>4 and x[0:4] == '-mo,':
@@ -2117,14 +2055,6 @@ def main(*args):
             print('Error: unrecognized paramater (',x,')')
     if tc == None:  #default console type by OS, if not set by switches
         Mode.setcontype(ourOS.defaultterm())
-=======
-        if len (x)>4 and x[0:4] == '-mo,':
-            mode.setmode( *(x[4:].split(',')) )
-        else:
-            print('Error: unrecognized paramater (',x,')')
-    if tc == None:  #default console type by OS, if not set by switches
-        mode.setcontype(ourOS.defaultterm())
->>>>>>> adding-vt100-mode
     psrs()
 
 def psrs():     # the main loop
@@ -2141,11 +2071,7 @@ def psrs():     # the main loop
         except tracHalt:            # terminate: HL or EOF (^D)
             return
         except tracError as e:
-<<<<<<< HEAD
             if Mode.unforgiving() or e.args[0]:
-=======
-            if mode.unforgiving or e.args[0]:
->>>>>>> adding-vt100-mode
                 ourOS.print_( str(e) )
             else:
                 ourOS.print_( '' )
