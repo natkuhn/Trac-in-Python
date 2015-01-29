@@ -558,23 +558,43 @@ class WindowsOS(TheOS):
             tc.bell()
 
     def getscrsize(self):
-        return None
+        # from http://stackoverflow.com/questions/566746/
+        res=None
+        try:
+            from ctypes import windll, create_string_buffer
+
+            # stdin handle is -10
+            # stdout handle is -11
+            # stderr handle is -12
+
+            h = windll.kernel32.GetStdHandle(-12)
+            csbi = create_string_buffer(22)
+            res = windll.kernel32.GetConsoleScreenBufferInfo(h, csbi)
+        except:
+            return None
+        if res:
+            import struct
+            (bufx, bufy, curx, cury, wattr,
+             left, top, right, bottom, maxx, maxy) = struct.unpack("hhhhHhhhhhh", csbi.raw)
+            cols = right - left + 1
+            rows = bottom - top + 1
+            return rows, cols
+        else:
+            return None
     
-#     ANSIre = re.compile('(\d+)x(\d+)\s*\((\d+)x(\d+)\)\Z')  #wxh(WxH)
-#     
-#             e = os.getenv('ANSICON')
-#             if e == None:
-#                 self.trysizeenv = False
-#             else:
-#                 m = InputString.ANSIre.match(e)
-#                 try:
-#                     if m == None:
-#                         raise ValueError
-#                     self.numcols = int(m.group(3))   #WxH
-#                     self.numrows = int(m.group(4))
-#                 except ValueError:
-#                     raise termError('ANSICON misformatted: ',e)
-        
+    ANSIre = re.compile('(\d+)x(\d+)\s*\((\d+)x(\d+)\)\Z')  #wxh(WxH)
+    def getsizeenv():
+        e = os.getenv('ANSICON')
+        if e == None:
+            return None
+        else:
+            m = WindowsOS.ANSIre.match(e)
+            try:
+                if m == None:
+                    raise ValueError
+                return ( int(m.group(4)), int(m.group(3)) )   #WxH
+            except ValueError:
+                raise termError('ANSICON misformatted: ',e)
 
 class PosixOS(TheOS):
     def getraw(self):
@@ -621,8 +641,32 @@ class PosixOS(TheOS):
                     tc.bell()     #for the ESC, better late than never
                     tc.inbuf = ch + tc.inbuf    # reprocess the character
     
-    def getscrsize(self):
-        return None
+    def getscrsize(self): #TODO
+        # from http://stackoverflow.com/questions/566746/
+        def ioctl_GWINSZ(fd):
+            try:
+                import fcntl, termios, struct, os
+                cr = struct.unpack('hh', fcntl.ioctl(fd, termios.TIOCGWINSZ,'1234'))
+            except:
+                return None
+            return cr
+        
+        cr = ioctl_GWINSZ(0) or ioctl_GWINSZ(1) or ioctl_GWINSZ(2)
+        if not cr:
+            try:
+                fd = os.open(os.ctermid(), os.O_RDONLY)
+                cr = ioctl_GWINSZ(fd)
+                os.close(fd)
+            except:
+                pass
+        return cr or None
+
+    def getsizeenv(self):
+        a = (os.getenv('LINES'), os.getenv('COLUMNS'))
+        if a[0] or a[1]:
+            return a
+        else:
+            return None
 
 class CygwinOS(PosixOS):
     def __init__(self):
@@ -812,7 +856,7 @@ class AnsiConsole(Console):
     def __init__(self, *args):
         self.fixedsize = AnsiConsole.DEFSIZE
         self.carriagepos = 0
-        self.sb = SwitchBank('opfdlv', 'pdlv')
+        self.sb = SwitchBank('oepfdlv', 'oepdlv')
         Console.__init__(self, *args)
     
     def settype(self, type, *args):
@@ -852,6 +896,7 @@ class AnsiConsole(Console):
     def refreshsize(self):
         self.results = []
         self.trysize('o', 'OS', ourOS.getscrsize)
+        self.trysize('e', 'environment', ourOS.getsizeenv)
         self.trysize('p', 'device poll', self.sizepoll)
         if len(self.results) == 0:    #none so far, go to fixed option
             self.sb.switches['f'] = True
@@ -872,15 +917,14 @@ class AnsiConsole(Console):
         if self.sb.switches[flag] == False:
             return
         size = fn()
-        if size != None:
+        if size == None:
+            self.sb.switches[flag] = False  # don't retry if it fails
+        else:
             self.results.append( (size, name) )
                 
     def sizepoll(self):
         ourOS.print_(ESC + '[1 8t', end='')
-        s = self.getcoords('t','8',';')
-        if s == None:
-            self.sb.switches['p'] = False
-        return s
+        return self.getcoords('t','8',';')
         
     def getcoords(self, term, *args):
         """this is a utility function to input the results of device-polling
