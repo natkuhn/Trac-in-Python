@@ -104,13 +104,12 @@ Nat Kuhn (NSK, nk@natkuhn.com)
             a. getch DONE
             b. cygwin change os.linesep DONE
             c. process keypresses win vs posix DONE
-        DONE: move numrows, numcols from InputString to xConsole
         MAYBE: change class names to caps
         FIXED: ^D in first character of RS generates 'InputString' object
             has no attribute 'hanging.'
         
 """
-# v1.1 implements new RS with left-right cursor keys
+# v1.1 implements new RS with cursor keys, input history, etc.
 # v1.0 moves the _Getch code into the main module so it all runs out of a single file
 # v0.9 fixes a bug in which seg gaps were identical objects, leading to multiple form
 # pointers in a single form. Trace implemented per Mooers
@@ -510,6 +509,9 @@ class TheOS:
         print(*args,**kwargs)
         return
     
+    def getscrsize(self):
+        return None
+    
 class WindowsOS(TheOS):
     def getraw(self):
         import msvcrt
@@ -520,9 +522,9 @@ class WindowsOS(TheOS):
     
     def rsctrl(self, inp, code):
         if code == 8:
-            return xConsole.BS
+            return AnsiConsole.BS
         if code == 127:         # TODO check this
-            return xConsole.DEL
+            return AnsiConsole.DEL
         if code == 224:      # alpha
             ch = tc.inkey()
             if ch == 'H':                  #up arrow
@@ -534,7 +536,7 @@ class WindowsOS(TheOS):
             elif ch == 'M':                #right arrow
                 inp.charright()
             elif ch == 'S':                #right arrow
-                return xConsole.DEL # at least for fn-delete on VMWare
+                return AnsiConsole.DEL # at least for fn-delete on VMWare
             else:
                 tc.bell()     #for the alpha, better late than never
                 tc.inbuf = ch + tc.inbuf    # reprocess the character
@@ -555,6 +557,25 @@ class WindowsOS(TheOS):
         else:
             tc.bell()
 
+    def getscrsize(self):
+        return None
+    
+#     ANSIre = re.compile('(\d+)x(\d+)\s*\((\d+)x(\d+)\)\Z')  #wxh(WxH)
+#     
+#             e = os.getenv('ANSICON')
+#             if e == None:
+#                 self.trysizeenv = False
+#             else:
+#                 m = InputString.ANSIre.match(e)
+#                 try:
+#                     if m == None:
+#                         raise ValueError
+#                     self.numcols = int(m.group(3))   #WxH
+#                     self.numrows = int(m.group(4))
+#                 except ValueError:
+#                     raise termError('ANSICON misformatted: ',e)
+        
+
 class PosixOS(TheOS):
     def getraw(self):
         import sys, tty, termios, fcntl, os
@@ -568,11 +589,11 @@ class PosixOS(TheOS):
         return ch
     
     def defaultterm(self):
-        return 'x'
+        return 'a'
     
     def rsctrl(self, inp, code):
         if code == 127:
-            return xConsole.BS
+            return AnsiConsole.BS
         if code == 27:      #ESC
             eseq = tc.geteseq()
             ch = eseq.pop(0)
@@ -590,7 +611,7 @@ class PosixOS(TheOS):
                 elif eseq == ['1',';','2','C']:     #shift-right arrow
                     inp.rowright()
                 elif eseq == ['3','~']:             #delete
-                    return xConsole.DEL
+                    return AnsiConsole.DEL
                 else:
                     self.bell()     #unrecognized CSI (=esc-[ sequence)
             else:   #eseq doesn't start with [
@@ -599,6 +620,9 @@ class PosixOS(TheOS):
                 else:
                     tc.bell()     #for the ESC, better late than never
                     tc.inbuf = ch + tc.inbuf    # reprocess the character
+    
+    def getscrsize(self):
+        return None
 
 class CygwinOS(PosixOS):
     def __init__(self):
@@ -621,7 +645,7 @@ class UnknownOS(TheOS):
     def defaultterm(self):
         return 'l'
 
-class TracConsole(object):
+class Console(object):
     def __init__(self, *args):
         self.inbuf = ''
         self.settype(*args)
@@ -662,7 +686,7 @@ class TracConsole(object):
         ourOS.print_(text, end='')
         return
 
-class BasicConsole(TracConsole):
+class BasicConsole(Console):
     """This code was contributed by Ben Kuhn, and subsequently modified.  It
     is for a basic terminal, e.g. the Windows command line, which doesn't
     have the vt100/xterm escape sequences
@@ -713,7 +737,7 @@ class BasicConsole(TracConsole):
                 else:
                     string += ch
 
-class LineConsole(TracConsole):
+class LineConsole(Console):
     def inkey(self):
         if self.inbuf == '':
             self.inbuf = sys.stdin.readline()
@@ -742,12 +766,43 @@ class LineConsole(TracConsole):
             else:
                 string += ch
 
-class xConsole(TracConsole):
-    global ESC  # commented out ourOS
+class AnsiConsole(Console):
+    """
+    RS implementation of unix readline features: cursor keys, and entry 
+    history.  Up,down, left,right cursor keys are implemented.
+    
+    Shift-left and shift-right go to beginning and end of line (alt-left
+    and alt-right in Windows).
+    
+    Alt-left and Alt-right go backwards and forwards through history (alt-up
+    and alt-down in Windows).
+    
+    #(mo,rt,a,switches,columns,rows)
+    
+    Switches:
+    o   get screen size from OS
+    p   get screen size from polling the terminal using ESC sequences (works
+            on OS X Terminal.app and not many others)
+    f   use fixed screen size, as set by columns, rows; default 80,24. These
+            arguments can be present and they set the screen size for +f
+            should it be activated in the future
+    d   report discrepancies from the above methods, if >1 is activated
+            if not reporting discrepancies, first successful method will be 
+            used
+    l   get screen location by polling the terminal; used when up-arrow
+            would go off top of screen
+    v   validate screen position and give error if it isn't correct (errors
+            can be thrown by excessively fast typing, or by bug in ANSICON
+            on Windows).
+            
+    #(mo,rt) returns a,switches,cols,rows where cols,rows is the actual
+        reported size of the screen. note that for all this to print you need
+        to use ##(mo,rt)
+    """
+    global ESC
     ESC = chr(27)
     
-    DEFROWS = 24
-    DEFCOLS = 80
+    DEFSIZE = (24, 80)
     MINROWS = 4
     MINCOLS = 10
     
@@ -755,43 +810,31 @@ class xConsole(TracConsole):
     DEL = 127
     
     def __init__(self, *args):
-        (self.termrows, self.termcols) = (xConsole.DEFROWS, xConsole.DEFCOLS)
+        self.fixedsize = AnsiConsole.DEFSIZE
         self.carriagepos = 0
-        TracConsole.__init__(self, *args)
+        self.sb = SwitchBank('opfdlv', 'pdlv')
+        Console.__init__(self, *args)
     
     def settype(self, type, *args):
+        prim.condTMA(args, 3, offset=2, atmost=True)
         self.contype = type.lower()
-        self.trylocpoll = True
-        if type == 'x':
-            self.trysizepoll = True
-            self.trysizeenv = False # 2nd option
-            prim.condTMA(args, 0, offset=2)
-#             if len(args) > 0 and Mode.unforgiving():
-#                 raise prim.TMAError(2+len(args),2)
-            return
-        elif type == 'v':
-            self.trysizepoll = False
-            self.trysizeenv = False # 2nd option
-            if len(args) == 0: return
-            prim.condTMA(args, 0, offset=2)
-#             if len(args) > 2 and Mode.unforgiving():
-#                 raise prim.TMAError(4+len(args),4,atmost=True)
+        if len(args) >= 1:
+            self.sb.flip(args[0])
+        if len(args) >= 2:
             try:
-                cols = int(args[0])
-                rows = int(args[1])
-                if rows >= xConsole.MINROWS and cols >= xConsole.MINCOLS:
-                    (self.termrows, self.termcols) = (rows, cols)
+                cols = int(args[1])
+                rows = int(args[2])
+                if rows >= AnsiConsole.MINROWS and cols >= AnsiConsole.MINCOLS:
+                    self.fixedsize = (rows, cols)
                 else:
                     raise ValueError
             except (ValueError, IndexError):
                 raise primError(False, "invalid screen size")
-        else:
-            assert False
     
     def gettype(self):
         tc.refreshsize()
-        return self.contype + ',' + str(self.numcols) + ',' + \
-            str(self.numrows)
+        return self.contype + ',' + self.sb.vals() + ',' + str(self.scrsize[1]) \
+            + ',' + str(self.scrsize[0])
     
     def adjustcarriage(self,t):
         p = t.split('\n')
@@ -800,41 +843,45 @@ class xConsole(TracConsole):
         return
     
     def printstr(self,text):
-        TracConsole.printstr(self,text)
+        Console.printstr(self,text)
         self.adjustcarriage(text)
         return
     
     #TODO: move the guts of this to theOS, and use
     #http://stackoverflow.com/questions/566746/how-to-get-console-window-width-in-python
     def refreshsize(self):
-        if self.contype == 'v':
-            return
-        self.numrows = None
-        if self.trysizepoll:
-            ourOS.print_(ESC + '[1 8t', end='')
-            (self.numrows, self.numcols) = self.getcoords('t','8',';')
-            if self.numrows == None:
-                self.trysizepoll = False    #don't bother a 2nd time
-                self.trysizeenv = True      #2nd choice
-        if self.trysizeenv:
-            e = os.getenv('ANSICON')
-            if e == None:
-                self.trysizeenv = False
-            else:
-                m = InputString.ANSIre.match(e)
-                try:
-                    if m == None:
-                        raise ValueError
-                    self.numcols = int(m.group(3))   #WxH
-                    self.numrows = int(m.group(4))
-                except ValueError:
-                    raise termError('ANSICON misformatted: ',e)
-        if self.numrows == None:    #fail x 2
-            self.contype = 'v'    #drop to vt100 mode, if not there already
-            assert self.trysizepoll == False
-            assert self.trysizeenv == False
-            (self.numrows, self.numcols) = (self.termrows, self.termcols)
+        self.results = []
+        self.trysize('o', 'OS', ourOS.getscrsize)
+        self.trysize('p', 'device poll', self.sizepoll)
+        if len(self.results) == 0:    #none so far, go to fixed option
+            self.sb.switches['f'] = True
+        self.trysize('f', 'fixed', lambda: self.fixedsize )
+        (self.scrsize, scrsource) = self.results[0]
+        if self.sb.switches['d']:
+            discrep = False
+            for ( size, source ) in self.results[1:]:
+                if size == self.scrsize:
+                    continue
+                ourOS.print_("Screen size discrepancy:",self.scrsize,'from',\
+                    scrsource,"vs",size,'from',source)
+                discrep = True
+            if discrep:
+                self.sb.switches['d'] = False    # once is enough
     
+    def trysize(self,flag,name,fn):
+        if self.sb.switches[flag] == False:
+            return
+        size = fn()
+        if size != None:
+            self.results.append( (size, name) )
+                
+    def sizepoll(self):
+        ourOS.print_(ESC + '[1 8t', end='')
+        s = self.getcoords('t','8',';')
+        if s == None:
+            self.sb.switches['p'] = False
+        return s
+        
     def getcoords(self, term, *args):
         """this is a utility function to input the results of device-polling
         escape sequences.
@@ -849,7 +896,7 @@ class xConsole(TracConsole):
                 self.inbuf += ch
             else:
                 self.inbuf += ch
-                return (None, None)
+                return None
         seq = self.geteseq()
         start = ['['] + list(args)
         while len(start) > 0:
@@ -891,11 +938,6 @@ class xConsole(TracConsole):
     
     def readstr(self, *args):
         """
-        RS implementation of unix readline features: cursor keys, 
-        and alt-left/right keys for entry history.
-        
-        It is implemented using xterm escape sequences.
-        
         Known issues:
         1. In OS X Terminal, if you type cmd-K to kill scrollback at "> " 
             prompt, and then type "ab'", it erases "> ab" leaving blank then 
@@ -943,7 +985,7 @@ class xConsole(TracConsole):
                 code = ourOS.rsctrl(self.inp, code)
                 if code == None:    #nothing more to process
                     continue
-            if code == xConsole.BS: # backspace
+            if code == AnsiConsole.BS: # backspace
                 if self.inp.inspoint == 0:
                     self.bell()
                     continue
@@ -959,7 +1001,7 @@ class xConsole(TracConsole):
                     continue        #already in the right place
                 self.inp.cursorisat(len(self.inp.rstring) )
                 self.inp.curtoinspoint()
-            elif code == xConsole.DEL:
+            elif code == AnsiConsole.DEL:
                 if self.inp.inspoint == len(self.inp.rstring):
                     self.bell() #already at end, nothing to del
                     continue
@@ -1036,6 +1078,9 @@ class xConsole(TracConsole):
         newinp.curtoinspoint()
         return
 
+Console.condict = dict( a=None, b=None, l=None)
+Console.contypes = dict( a=AnsiConsole, b=BasicConsole, l=LineConsole )
+
 class InputString(object):
     """
     This class is a container for the RS input string when doing xterm/VT100-
@@ -1086,8 +1131,10 @@ class InputString(object):
         screen cursor is supposed to be located. this will be different from 
         inspoint, e.g. if we have just rewritten the end of the string on the 
         screen
-    rowloc, colloc: the screen coordinates of the current cursor
-    numrows, numcols: the size of the screen, either returned by getscrsize()
+    rowloc,colloc: the screen coordinates of the current cursor; the column
+        is set programmatically, while the row could be set by device polling, 
+        or not.
+    tc.scrsize: the size of the screen (r,c), determined by refreshsize()
     rowsdown: the number of screen rows from the start of "line 0" (i.e. the 
         beginning of the "virtual line" that input string stars on) to the
         current screen cursor location
@@ -1101,9 +1148,6 @@ class InputString(object):
     tc.carriagepos is the position within the current "line". It is set by PS, 
         and at the END of RS
     """
-    import re
-    ANSIre = re.compile('(\d+)x(\d+)\s*\((\d+)x(\d+)\)\Z')  #wxh(WxH)
-    
     def __init__(self, str, point):
         self.rstring = str
         self.inspoint = point
@@ -1125,7 +1169,7 @@ class InputString(object):
         """
         this sets curpoint to 'point', and computes the (virtual) line and pos 
         corresponding to that point. It also tells how many screen rows it
-        should be down from the start of line 0 on a screen with numcols 
+        should be down from the start of line 0 on a screen with scrsize[1] 
         columns. it sets 'hanging' if printing to here would leave cursor in 
         hanging position; the actual printed character may or may not actually 
         be in hanging position.
@@ -1137,21 +1181,21 @@ class InputString(object):
         rd = 0
         for self.line in range(len(self.linelengths)):
             ll = self.linelengths[self.line]
-            self.colloc = self.pos % tc.numcols + 1
+            self.colloc = self.pos % tc.scrsize[1] + 1
             if self.pos == 0 or self.pos < ll:    #not hanging, for sure
-                self.rowsdown = rd + self.pos // tc.numcols
+                self.rowsdown = rd + self.pos // tc.scrsize[1]
                 self.hanging = False
                 return
-            if self.pos == ll:  #hanging, if numcols goes into chars evenly
-                self.rowsdown = rd + (self.pos-1) // tc.numcols
+            if self.pos == ll:  #hanging, if scrsize[1] goes into chars evenly
+                self.rowsdown = rd + (self.pos-1) // tc.scrsize[1]
                 if self.colloc == 1:
                     self.hanging = True
-                    self.colloc = tc.numcols
+                    self.colloc = tc.scrsize[1]
                 else:
                     self.hanging = False
                 return
             self.pos -= (ll + 1)       # count 1 for the \n
-            rd += max(0, ll-1) // tc.numcols + 1           # same here
+            rd += max(0, ll-1) // tc.scrsize[1] + 1           # same here
                 # use ll-1 because an 80-char line on an 80-char screen won't 
                 # wrap, i.e. the returned value says "if I just printed that, 
                 # how many lines down will I be," rather than "if I want to 
@@ -1176,10 +1220,8 @@ class InputString(object):
         it gets the current location and then (partially) validates that the 
             current screen cursor position corresponds to 'point'
         """
-#         if reusesize == None:
-#             tc.refreshsize()
-        self.posfrompoint(point)    # depends on tc.numcols
-        self.refreshloc()           # gets rowloc, if available
+        self.posfrompoint(point)    # depends on tc.scrsize[1]
+        self.refreshloc()           # gets row location, if available
     
     def curatinspoint(self):
         tc.refreshsize()
@@ -1202,13 +1244,12 @@ class InputString(object):
                 #TODO this should not be termError? those should only be for things that
                 raise termError("<ERR> New cursor position is off the top of the screen")
         self.scrgoto(rowdelta,self.colloc)
-        #what follows is solely for validation
-        shouldbe = self.rowloc
-        self.refreshloc()
-        if self.rowloc != shouldbe:
-            raise termError('Row alignment error: rowloc=', shouldbe, \
-                ' but actually is ', self.rowloc, 'pos=', self.pos, \
-                'line=', self.line)
+        if tc.sb.switches['v']:
+            shouldbe = self.rowloc
+            self.refreshloc()
+            if self.rowloc != shouldbe:
+                raise termError('Row alignment error: rowloc=', shouldbe, \
+                    ' but actually is ', self.rowloc)
         return
     
     def curtoinspoint(self):
@@ -1230,29 +1271,35 @@ class InputString(object):
         """
         start = 0
         if self.hanging:
-            if self.rowloc == tc.numrows:   #last character on screen
+            if self.rowloc == tc.scrsize[0]:   #last character on screen
                 if s == '': return
                 self.rowloc -= 1  #the screen will roll up 1
             ourOS.print_('\n',end='')
             if s == '':
                 ourOS.print_(ESC+'[J', end='')
-                self.scrgoto(-1, tc.numcols)  # go back up
+                self.scrgoto(-1, tc.scrsize[1])  # go back up
                 return
             if s[0] == '\n': start = 1
         ourOS.print_(ESC+'[J'+s[start:], end='')
     
     def refreshloc(self):
-        if tc.trylocpoll:
-            ourOS.print_(ESC + '[6n', end='')
-            (self.rowloc, cl) =  tc.getcoords('R')
-            if cl == None:  #couldn't get from poll
-                tc.trylocpoll = False
-            elif self.colloc != cl:
-                raise termError('Column alignment error: colloc=', \
-                    self.colloc, ' but actually is ', cl, 'pos=', self.pos, \
-                    'line=', self.line)
-        else:
+        if tc.sb.switches['l'] == False:
             self.rowloc = None
+            return
+        ourOS.print_(ESC + '[6n', end='')
+        coords =  tc.getcoords('R')
+        if coords == None:  #couldn't get from poll
+            self.rowloc = None
+            tc.sb.switches['l'] = False  # don't keep trying
+            return
+        self.rowloc = coords[0]
+        if self.colloc == coords[1]:
+            return
+        if tc.sb.switches['v']:
+            raise termError('Column alignment error: colloc=', \
+                self.colloc, ' but actually is ', coords[1])
+#         else:   # commented out d/t bug in ANSICON, returning wrong col
+#             self.colloc = coords[1]
     
     def charleft(self):
         if self.inspoint == 0:
@@ -1272,23 +1319,24 @@ class InputString(object):
     
     # remember that in line 0, "pos" includes the prompt (tc.carriagepos) which
     # can span several rows. the code above guarantees that if we're in line 0,
-    # self.inspoint > numcols
+    # self.inspoint > scrsize[1]
     def rowup(self):
         if self.inspoint == 0:
             tc.bell()
             return
         self.curatinspoint()
-        if self.line == 0 or self.pos >= tc.numcols:   #go as straight up as poss
-            self.inspoint = max(0, self.inspoint - tc.numcols - (1 if self.hanging else 0) )
+        if self.line == 0 or self.pos >= tc.scrsize[1]:   #go as straight up as poss
+            self.inspoint = max(0, \
+                self.inspoint - tc.scrsize[1] - (1 if self.hanging else 0) )
             self.curtoinspoint()
             return
         prevll = self.linelengths[self.line-1]
         onprevrow = 0 if prevll == 0 else \
-            (prevll - 1) % tc.numcols + 1  #number of chars on the prev row
+            (prevll - 1) % tc.scrsize[1] + 1  #number of chars on the prev row
         # OK, we want to move straight up, how much do we move self.inspoint?
         # if the last row were the full width of the screen, self.inspoint
-        # would go back numcols+1 (the extra 1 for the \n). But that is going
-        # too far back by numcols-onprevrow. this works out to the formula
+        # would go back scrsize[1]+1 (the extra 1 for the \n). But that is going
+        # too far back by scrsize[1]-onprevrow. this works out to the formula
         # above. geometrically, if you take the characters on the last row and
         # move the first "pos" of them down to the current row, you will see
         # that this give you the # of chars to back up (with an additional 1
@@ -1308,16 +1356,16 @@ class InputString(object):
         self.curatinspoint()
         curll = self.linelengths[self.line]
         rump = curll - self.pos  #how much left on this line?
-        if rump >= tc.numcols:  
-            self.inspoint += tc.numcols
+        if rump >= tc.scrsize[1]:  
+            self.inspoint += tc.scrsize[1]
             #check if this leaves in hanging position
-            if rump == tc.numcols and self.colloc == 1: self.inspoint += 1
+            if rump == tc.scrsize[1] and self.colloc == 1: self.inspoint += 1
         #already on last line, just go to the end
         elif self.line == len(self.linelengths) - 1:
             self.inspoint = len(self.rstring)
         #some of this line, hangs over, but not enough to go straight down,
         #go to the end of it
-        elif rump + self.colloc > tc.numcols + 1:
+        elif rump + self.colloc > tc.scrsize[1] + 1:
             self.inspoint += rump
         else:   # go to next line
             nextll = self.linelengths[self.line + 1]
@@ -1346,7 +1394,7 @@ class InputString(object):
         if charsleft == 0:      #already there
             tc.bell()
             return
-        colsleft = tc.numcols - self.colloc
+        colsleft = tc.scrsize[1] - self.colloc
         gohang = ( charsleft - colsleft ) == 1
         if colsleft == 0 and not gohang:    #already there
             tc.bell()
@@ -1555,18 +1603,17 @@ class Mode:     # for MO
     
     @staticmethod
     def setcontype(*args):
-        global tc, condict      #, contypes
+        global tc
         if len(args) == 0:
-#            tc.bell()
             return tc.gettype()
         c = args[0].lower()
         oldtc = tc
         try:
-            tc = condict[c]
+            tc = Console.condict[c]
             if tc == None:      #need to instantiate
-                tc = condict[c] = contypes[c](*args)
+                tc = Console.condict[c] = Console.contypes[c](*args)
             else:
-                tc.settype(*args) #because xConsole handles both x and v
+                tc.settype(*args)
         except KeyError:
             tc = oldtc
             raise primError(False, 'unrecognized console type: ', c)
@@ -1903,10 +1950,9 @@ prim( 'mo', Mode.setmode )
 
 def main(*args):
     global syntchar, forms, metachar, activeImpliedCall, tracing
-    global ourOS, condict, contypes, tc, rshistory
+    global ourOS, tc, rshistory
     ourOS = TheOS.whichOS()
-    condict = dict(b=None, l=None, v= None, x=None)
-    contypes = dict(b=BasicConsole, l=LineConsole, v=xConsole, x=xConsole)
+#     Console.init()
     rshistory = []
     forms = {}      # the defined strings
     syntchar = syntclass('#')
