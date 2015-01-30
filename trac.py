@@ -97,16 +97,9 @@ Please feel free to report bugs!
 
 Nat Kuhn (NSK, nk@natkuhn.com)
 
-        TODO: set arithmetic and esp. boolean radix
-        TODO: test for ^C while in a loop
-        MAYBE: paren matching? really? these kids today are soft!
-        DOING: implement theOS class with ourOS instance for:   
-            a. getch DONE
-            b. cygwin change os.linesep DONE
-            c. process keypresses win vs posix DONE
+        TODO: add #(mo,ar) for arithmetic radix and #(mo,br) for boolean radix
+        TODO: paren matching? really? these kids today are soft!
         MAYBE: change class names to caps
-        FIXED: ^D in first character of RS generates 'InputString' object
-            has no attribute 'hanging.'
         
 """
 # v1.1 implements new RS with cursor keys, input history, etc.
@@ -583,7 +576,7 @@ class WindowsOS(TheOS):
             return None
     
     ANSIre = re.compile('(\d+)x(\d+)\s*\((\d+)x(\d+)\)\Z')  #wxh(WxH)
-    def getsizeenv():
+    def getsizeenv(self):
         e = os.getenv('ANSICON')
         if e == None:
             return None
@@ -626,14 +619,18 @@ class PosixOS(TheOS):
                     inp.charleft()
                 elif eseq == ['1',';','2','D']:     #shift-left arrow
                     inp.rowleft()
+                elif eseq == ['1',';','3','D']:     #Cygwin alt-left arrow
+                    tc.dohist('b')
                 elif eseq[0] == 'C':                #right arrow
                     inp.charright()
                 elif eseq == ['1',';','2','C']:     #shift-right arrow
                     inp.rowright()
+                elif eseq == ['1',';','3','C']:     #Cygwin alt-right arrow
+                    tc.dohist('f')
                 elif eseq == ['3','~']:             #delete
                     return AnsiConsole.DEL
                 else:
-                    self.bell()     #unrecognized CSI (=esc-[ sequence)
+                    tc.bell()     #unrecognized CSI (=esc-[ sequence)
             else:   #eseq doesn't start with [
                 if ch == 'b' or ch == 'f':                       #alt-left arrow
                     tc.dohist(ch)
@@ -641,7 +638,7 @@ class PosixOS(TheOS):
                     tc.bell()     #for the ESC, better late than never
                     tc.inbuf = ch + tc.inbuf    # reprocess the character
     
-    def getscrsize(self): #TODO
+    def getscrsize(self):
         # from http://stackoverflow.com/questions/566746/
         def ioctl_GWINSZ(fd):
             try:
@@ -757,7 +754,7 @@ class BasicConsole(Console):
         while True:
             ch = self.inkey()
             code = ord(ch)
-            if code == 127: # backspace
+            if code == 127 or ch == '\b': # backspace (mac or Windows)
                 if string == '':
                     self.bell()
                     continue
@@ -777,6 +774,7 @@ class BasicConsole(Console):
                     echoing = False
                 ourOS.print_(ch, end='')
                 if ch == mc:
+                    sys.stdout.flush()
                     return string
                 else:
                     string += ch
@@ -824,15 +822,22 @@ class AnsiConsole(Console):
     #(mo,rt,a,switches,columns,rows)
     
     Switches:
-    o   get screen size from OS
-    p   get screen size from polling the terminal using ESC sequences (works
-            on OS X Terminal.app and not many others)
-    f   use fixed screen size, as set by columns, rows; default 80,24. These
+    o   get screen size from OS (seems to work pretty universally)
+    t   get screen size from polling the terminal using ESC sequences (works
+            on OS X Terminal.app and not many others; prints garbage chars
+            in ANSICON)
+    s   get screen size from using 'tput' in subprocesses (supposedly 
+            necessary for cygwin using native Windows Python, but character-
+            by-character I/O doesn't work under those circumstances anyway
+    e   get screen size from environment variables (does not vary dynamically
+            as user resizes screen, so a next-to-last resort)
+    f   use fixed screen size, as set by columns, rows; default 80,25. These
             arguments can be present and they set the screen size for +f
             should it be activated in the future
-    d   report discrepancies from the above methods, if >1 is activated
+    d   report discrepancies from the above methods, if > 1 is activated
             if not reporting discrepancies, first successful method will be 
-            used
+            used; if 'd' is not set it stops with first successful method,
+            in the order listed above
     l   get screen location by polling the terminal; used when up-arrow
             would go off top of screen
     v   validate screen position and give error if it isn't correct (errors
@@ -846,7 +851,7 @@ class AnsiConsole(Console):
     global ESC
     ESC = chr(27)
     
-    DEFSIZE = (24, 80)
+    DEFSIZE = (25, 80)
     MINROWS = 4
     MINCOLS = 10
     
@@ -856,7 +861,7 @@ class AnsiConsole(Console):
     def __init__(self, *args):
         self.fixedsize = AnsiConsole.DEFSIZE
         self.carriagepos = 0
-        self.sb = SwitchBank('oepfdlv', 'oepdlv')
+        self.sb = SwitchBank('otsefdlv', 'oel')
         Console.__init__(self, *args)
     
     def settype(self, type, *args):
@@ -877,8 +882,8 @@ class AnsiConsole(Console):
     
     def gettype(self):
         tc.refreshsize()
-        return self.contype + ',' + self.sb.vals() + ',' + str(self.scrsize[1]) \
-            + ',' + str(self.scrsize[0])
+        return self.contype + ',' + self.sb.vals() + ',' + \
+            str(self.scrsize[1]) + ',' + str(self.scrsize[0])
     
     def adjustcarriage(self,t):
         p = t.split('\n')
@@ -891,14 +896,13 @@ class AnsiConsole(Console):
         self.adjustcarriage(text)
         return
     
-    #TODO: move the guts of this to theOS, and use
-    #http://stackoverflow.com/questions/566746/how-to-get-console-window-width-in-python
     def refreshsize(self):
         self.results = []
         self.trysize('o', 'OS', ourOS.getscrsize)
+        self.trysize('t', 'terminal poll', self.sizepoll)
+        self.trysize('s', 'subprocess', self.sizeproc)
         self.trysize('e', 'environment', ourOS.getsizeenv)
-        self.trysize('p', 'device poll', self.sizepoll)
-        if len(self.results) == 0:    #none so far, go to fixed option
+        if not self.results:    #none so far, go to fixed option
             self.sb.switches['f'] = True
         self.trysize('f', 'fixed', lambda: self.fixedsize )
         (self.scrsize, scrsource) = self.results[0]
@@ -914,8 +918,10 @@ class AnsiConsole(Console):
                 self.sb.switches['d'] = False    # once is enough
     
     def trysize(self,flag,name,fn):
-        if self.sb.switches[flag] == False:
+        if self.sb.switches[flag] == False: # this method is disabled
             return
+        if self.sb.switches['d'] == False and self.results:  # or we already 
+            return  # have a result and aren't interested in discrepancies
         size = fn()
         if size == None:
             self.sb.switches[flag] = False  # don't retry if it fails
@@ -925,7 +931,20 @@ class AnsiConsole(Console):
     def sizepoll(self):
         ourOS.print_(ESC + '[1 8t', end='')
         return self.getcoords('t','8',';')
-        
+    
+    def sizeproc(self):
+        try:
+           import subprocess
+           proc=subprocess.Popen(["tput", "cols"],stdin=subprocess.PIPE,stdout=subprocess.PIPE)
+           output=proc.communicate(input=None)
+           cols=int(output[0])
+           proc=subprocess.Popen(["tput", "lines"],stdin=subprocess.PIPE,stdout=subprocess.PIPE)
+           output=proc.communicate(input=None)
+           rows=int(output[0])
+           return (rows,cols)
+        except:
+           return None
+    
     def getcoords(self, term, *args):
         """this is a utility function to input the results of device-polling
         escape sequences.
@@ -1068,6 +1087,7 @@ class AnsiConsole(Console):
                     self.inp.rstring = head
                     self.inp.redolengths()
                     rshistory.append(self.inp)
+                    sys.stdout.flush()
                     return head
                 tail = self.inp.rstring[self.inp.inspoint:]
                 self.inp.rstring = head + ch + tail
@@ -1083,9 +1103,8 @@ class AnsiConsole(Console):
                 if self.inp.inspoint == len(self.inp.rstring):
                     continue        #already in the right place
                 self.inp.cursorisat( len(self.inp.rstring) )
-                self.inp.curtoinspoint()
-        # end of RS main loop
-        
+                self.inp.curtoinspoint()    # end of RS main loop
+    
     def dohist(self, dir):
         if self.histpointer == None:    #set up history
             self.histcopy = []
@@ -1600,7 +1619,6 @@ class Mode:     # for MO
     easier on a standard keyboard, so I switched to the # camp... especially 
     since you can put scripts in as Python comments, and not have to edit out 
     initial #s.
-    TODO: add #(mo,ar) for arithmetic radix and #(mo,r) for boolean radix
     """
 #must be defined above primitives, in case there is a duplicate
     swextended = SwitchBank('pu','p')   # default is extended prims
@@ -1996,7 +2014,6 @@ def main(*args):
     global syntchar, forms, metachar, activeImpliedCall, tracing
     global ourOS, tc, rshistory
     ourOS = TheOS.whichOS()
-#     Console.init()
     rshistory = []
     forms = {}      # the defined strings
     syntchar = syntclass('#')
@@ -2005,12 +2022,15 @@ def main(*args):
     trace(False)
     tc = None   # because setcontype saves this for error recovery
     for x in args:
-        if x == '-mo':
-            Mode.setmode()
-        elif len (x)>4 and x[0:4] == '-mo,':
-            Mode.setmode( *(x[4:].split(',')) )
-        else:
-            print('Error: unrecognized paramater (',x,')')
+        try:
+            if x == '-mo':
+                Mode.setmode()
+            elif len (x)>4 and x[0:4] == '-mo,':
+                Mode.setmode( *(x[4:].split(',')) )
+            else:
+                print('Error: unrecognized paramater (',x,')')
+        except primError as e:
+            print( 'Error:', ''.join(map(str,e[1:])) )
     if tc == None:  #default console type by OS, if not set by switches
         Mode.setcontype(ourOS.defaultterm())
     psrs()
