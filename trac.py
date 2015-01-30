@@ -137,10 +137,8 @@ Nat Kuhn (NSK, nk@natkuhn.com)
 # example: #(exp,2,6)'64
 
 from __future__ import print_function   # for Python 3 compatibility
-import re
-import sys
+import re, sys, os, time
 import cPickle as pickle                # for SB and FB
-import os                               # for EB
 
 class form:
     """a 'form' is a 'defined string.' It is stored as a list; each element in 
@@ -754,6 +752,7 @@ class BasicConsole(Console):
         2. Doesn't work well when you backspace over a printed-out \ from 
             the echoing mode.
         """
+        global rshistory
         string = ''
         mc = metachar.get()
         echoing = False #set to true when we BS past \n
@@ -781,6 +780,7 @@ class BasicConsole(Console):
                 ourOS.print_(ch, end='')
                 if ch == mc:
                     sys.stdout.flush()
+                    rshistory.append(self.inp)
                     return string
                 else:
                     string += ch
@@ -799,9 +799,8 @@ class LineConsole(Console):
         return self.inkey()
     
     def readstr(self, *args):
+        global rshistory
         prim.condTMA(args, 0)
-#         if len(args) > 0 and Mode.unforgiving():
-#             prim.TMAError( len(args), 0 )
         string = ''
         mc = metachar.get()
         while True:
@@ -810,6 +809,7 @@ class LineConsole(Console):
                 if mc != '\n' and self.inbuf[0] == '\n':
                     #strip \n immed following meta
                     self.inbuf = self.inbuf[1:]
+                rshistory.append(self.inp)
                 return string
             else:
                 string += ch
@@ -969,7 +969,6 @@ class AnsiConsole(Console):
         escape sequences.
         If it takes > 50 msec to get to ESC, we conclude that device-polling
         is not working."""
-        import time
         time0 = time.time()
         while True:
             ch = ourOS.getraw()
@@ -1119,10 +1118,11 @@ class AnsiConsole(Console):
                 else:
                     self.inp.eprint(ch + tail) #even if it's printable, need to erase due to linewrapping
                 self.inp.inspoint += 1
-                if self.inp.inspoint == len(self.inp.rstring):
-                    continue        #already in the right place
-                self.inp.cursorisat( len(self.inp.rstring) )
-                self.inp.curtoinspoint()    # end of RS main loop
+                if self.inp.inspoint != len(self.inp.rstring):
+                    self.inp.cursorisat( len(self.inp.rstring) )
+                    self.inp.curtoinspoint()
+                if ch == ')':
+                    self.inp.parenmatch()        # end of RS main loop
     
     def dohist(self, dir):
         if self.histpointer == None:    #set up history
@@ -1230,6 +1230,8 @@ class InputString(object):
     tc.carriagepos is the position within the current "line". It is set by PS, 
         and at the END of RS
     """
+    FLASHSECS = .150    # amount of time to flash for paren matching
+    
     def __init__(self, str, point):
         self.rstring = str
         self.inspoint = point
@@ -1314,7 +1316,8 @@ class InputString(object):
         cursorto moves the screen cursor from curpoint to 'newpoint'.
         
         cursorto is used by cursor key handling, repositioning the cursor after 
-        printing to the screen, and repositioning before backspace/delete
+        printing to the screen, repositioning before backspace/delete, and
+        paren matching
         """
         fromrow = self.rowloc
         rowsup = self.rowsdown
@@ -1380,8 +1383,6 @@ class InputString(object):
         if tc.sb.switches['v']:
             raise termError('Column alignment error: colloc=', \
                 self.colloc, ' but actually is ', coords[1])
-#         else:   # commented out d/t bug in ANSICON, returning wrong col
-#             self.colloc = coords[1]
     
     def charleft(self):
         if self.inspoint == 0:
@@ -1484,6 +1485,25 @@ class InputString(object):
         self.inspoint += min(charsleft, colsleft) + (1 if gohang else 0)
         self.curtoinspoint()
         return
+    
+    def parenmatch(self):
+        i = self.inspoint - 1
+        bal = 0
+        while i >= 0:
+            c = self.rstring[i]
+            if c == ')':
+                bal += 1
+            elif c == '(':
+                bal -= 1
+                if bal == 0:
+                    self.cursorto(i)
+                    sys.stdout.flush()
+                    time.sleep(InputString.FLASHSECS)
+                    self.curtoinspoint()
+                    return
+            i -= 1
+        if bal > 0: # too many )
+            tc.bell()
 
 class specchar:
     """a container for the 'meta character' which terminates #(RS), and the 
