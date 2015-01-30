@@ -47,26 +47,26 @@ in the early 1970s.  I use the caret in PF, though with this new-fangled
 unicode stuff you could probably manage a real up-arrow.  :-/
 
 5. Terminal i/o: #(mo,rt,term-mode) allows you to set the terminal mode to 
-x, b, or l.  #(mo,rt) returns the current mode, in lower case.  Incidentally,
+a, b, or l.  #(mo,rt) returns the current mode, in lower case.  Incidentally,
 'rt' is for 'reactive typewriter,' Mooers' term for an interactive terminal.
     l   line-oriented i/o: uses sys.stdin.readline(), so that you need to 
             hit <enter> before anything is actually read.  Any newline 
             immediately after a meta character is stripped out.
     b   basic terminal: implements a rudimentary backspace, which works back
             to the last newline, and then echoes deleted characters between
-            \s.  Default mode for Windows, has known issues.  Based on code 
-            from Ben Kuhn.
-    x   xterm mode: default mode for Unix/Mac OS X.  Works with backspace, 
-            delete, cursor up/down/left/right, and implements unix shell-
-            style history using alt-left-arrow and alt-right-arrow.  Shift-
-            left- and right-arrow move to beginning and end of the current
-            line.  I hope someone likes this because it was truly painful to 
-            implement.  xterm mode drops back to vterm mode if there is no
-            response to device screen-size polls.
-#(mo,rt) returns the mode; in the case of x or v it returns mode,rows,cols.
-So to see those, you need ##(mo,rt)
+            backslashes.  Default mode for Windows, has known issues.  Based 
+            on code from Ben Kuhn.
+    a   ANSI terminal mode: default mode for Unix/Mac OS X; also works on 
+            Windows as described under RS.  Works with backspace, delete, 
+            cursor up/down/left/right, and implements unix shell-style history 
+            using alt-left-arrow and alt-right-arrow (alt-up and alt-down on 
+            Windows).  Shift-left- and right-arrow (alt-left and alt-right on 
+            Windows) move to beginning and end of the current line.  I hope 
+            someone likes this because it was painful to implement!
+#(mo,rt) returns the terminal mode; in the case of ANSI mode it returns 
+a,switches,columns,rows; to see those, you need ##(mo,rt).
 
-6. In xterm mode of #5 above, I have implemented an extended version of
+6. In ansi mode of #5 above, I have implemented an extended version of
 read string: #(rs,init string,displacement): it is as if the user has already 
 entered 'init string' with the cursor placed at 'displacement'. If 
 'displacement' is positive or 0 is is from the start of the string; if it is 
@@ -90,13 +90,15 @@ off as a default.
 
 8. See other extensions to MO in the mode class.
 
-Thanks to Ben Kuhn for getting me Hooked on Pythonics, and to John Levine for 
-consultation, stimulation, and general interest.
+Thanks to Ben Kuhn for getting me Hooked on Pythonics (and for getting me going
+on improving RS); to John Levine for consultation, stimulation, and general 
+interest; and to Andrew Walker for his enthusiasm and support.
 
 Please feel free to report bugs!
 
 Nat Kuhn (NSK, nk@natkuhn.com)
 
+        TODO: fix ANSICON issue as described under RS
         TODO: add #(mo,ar) for arithmetic radix and #(mo,br) for boolean radix
         TODO: paren matching? really? these kids today are soft!
         MAYBE: change class names to caps
@@ -811,17 +813,30 @@ class LineConsole(Console):
 class AnsiConsole(Console):
     """
     RS implementation of unix readline features: cursor keys, and entry 
-    history.  Up,down, left,right cursor keys are implemented.
+    history.  Up, down, left,right cursor keys are implemented, along with 
+    entry history.
+    
+    Runs on *nix including OSX, Windows under Cygwin or ANSICON.
+    
+    For ANSICON, see http://adoxa.altervista.org/ansicon/index.html
+    Download the full package, use either the x86 (32-bit) or x64 (64-bit).
+    Double-click on ANSICON, and then enter "python trac.py -mo,rt,a" 
+    (supplying the appropriate paths for the files, if necessary).
+    
+    Known issue with ANSICON: when you make the window narrower, ANSICON
+    doesn't wrap the lines at the new width, it just makes a scroll bar.  The
+    input, however is wrapped at the window width.  So best to leave it at 
+    80 characters for now, or run under Cygwin.
     
     Shift-left and shift-right go to beginning and end of line (alt-left
-    and alt-right in Windows).
+    and alt-right in Windows ANSICON).
     
     Alt-left and Alt-right go backwards and forwards through history (alt-up
-    and alt-down in Windows).
+    and alt-down in Windows ANSICON).
     
     #(mo,rt,a,switches,columns,rows)
     
-    Switches:
+    Switches (default is +o+e+l):
     o   get screen size from OS (seems to work pretty universally)
     t   get screen size from polling the terminal using ESC sequences (works
             on OS X Terminal.app and not many others; prints garbage chars
@@ -845,7 +860,7 @@ class AnsiConsole(Console):
             on Windows).
             
     #(mo,rt) returns a,switches,cols,rows where cols,rows is the actual
-        reported size of the screen. note that for all this to print you need
+        reported size of the screen. Note that for all this to print you need
         to use ##(mo,rt)
     """
     global ESC
