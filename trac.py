@@ -508,6 +508,10 @@ class TheOS:
         return None
     
 class WindowsOS(TheOS):
+    def __init__(self):
+        aw = self.getsizeenv()
+        self.ansiwidth = aw[1] if aw else None
+    
     def getraw(self):
         import msvcrt
         return msvcrt.getch()
@@ -569,9 +573,9 @@ class WindowsOS(TheOS):
             return None
         if res:
             import struct
-            (bufx, bufy, curx, cury, wattr,
-             left, top, right, bottom, maxx, maxy) = struct.unpack("hhhhHhhhhhh", csbi.raw)
-            cols = right - left + 1
+            (bufx, bufy, curx, cury, wattr, left, top, right, bottom, \
+                maxx, maxy) = struct.unpack("hhhhHhhhhhh", csbi.raw)
+            cols = self.ansiwidth if self.ansiwidth else (right - left + 1)
             rows = bottom - top + 1
             return rows, cols
         else:
@@ -585,10 +589,10 @@ class WindowsOS(TheOS):
         else:
             m = WindowsOS.ANSIre.match(e)
             try:
-                if m == None:
-                    raise ValueError
-                return ( int(m.group(4)), int(m.group(3)) )   #WxH
-            except ValueError:
+                #for ANSICON, return "buffer width" rather than "screen width"
+                #because that is where it wraps
+                return ( int(m.group(4)), int(m.group(1)) )   # H x w
+            except (AttributeError, ValueError):
                 raise termError('ANSICON misformatted: ',e)
 
 class PosixOS(TheOS):
@@ -824,9 +828,9 @@ class AnsiConsole(Console):
     (supplying the appropriate paths for the files, if necessary).
     
     Known issue with ANSICON: when you make the window narrower, ANSICON
-    doesn't wrap the lines at the new width, it just makes a scroll bar.  The
-    input, however is wrapped at the window width.  So best to leave it at 
-    80 characters for now, or run under Cygwin.
+    doesn't wrap the lines at the new width, it just makes a scroll bar.  As 
+    a result I just leave the line width at buffer width.  If you want a truly
+    narrower window, use Cygwin.
     
     Shift-left and shift-right go to beginning and end of line (alt-left
     and alt-right in Windows ANSICON).
@@ -2028,7 +2032,10 @@ prim( 'mo', Mode.setmode )
 def main(*args):
     global syntchar, forms, metachar, activeImpliedCall, tracing
     global ourOS, tc, rshistory
-    ourOS = TheOS.whichOS()
+    try:
+        ourOS = TheOS.whichOS()
+    except termError as e:  # misformatted ansicon string can throw error
+        print('Error:', str(e))
     rshistory = []
     forms = {}      # the defined strings
     syntchar = syntclass('#')
