@@ -2,14 +2,16 @@
 
 # trac processor (Mooers' T-64)
 # Nat Kuhn (NSK), 7/5/13, v1.0  7/25/13
-# 1/1/15 NSK with help from BSK, v1.1beta implementing meta-sensitive RS with cursor keys
+# 1/1-30/15 NSK with help from BSK, v1.1 implementing meta-sensitive RS with cursor keys
 
 """
 This Trac Processor (i.e., interpreter) implements Calvin N. Mooers Trac T-64 
-standard, as described in his 1972 document:
+standard, as described in his 1972 document (RR-284):
 http://web.archive.org/web/20050205173449/http://tracfoundation.org/t64tech.htm
 
-There are a few deviations:
+There are a few deviations from the Mooers standard, including some 
+improvements:
+
 1. In the Mooers standard, the storage primitives (fb,sb,eb) store a "hardware 
 address" of the storage block in a named form.  I could have slavishly followed
 this, putting the file name in a form, but instead, you just supply the file 
@@ -56,13 +58,15 @@ a, b, or l.  #(mo,rt) returns the current mode, in lower case.  Incidentally,
             to the last newline, and then echoes deleted characters between
             backslashes.  Default mode for Windows, has known issues.  Based 
             on code from Ben Kuhn.
-    a   ANSI terminal mode: default mode for Unix/Mac OS X; also works on 
-            Windows as described under RS.  Works with backspace, delete, 
-            cursor up/down/left/right, and implements unix shell-style history 
-            using alt-left-arrow and alt-right-arrow (alt-up and alt-down on 
-            Windows).  Shift-left- and right-arrow (alt-left and alt-right on 
-            Windows) move to beginning and end of the current line.  I hope 
-            someone likes this because it was painful to implement!
+    a   ANSI terminal (e.g., VT-100) mode: default mode for Unix/Mac OS X; 
+            also works on Windows as described under RS.  Works with backspace,
+            delete, cursor up/down/left/right, and implements unix shell-style  
+            history using alt-left-arrow and alt-right-arrow (alt-up and 
+            alt-down on Windows).  Shift-left- and right-arrow (alt-left and 
+            alt-right on Windows) move to beginning and end of the current 
+            line.  I hope someone likes this because it was painful to    
+            implement!
+
 #(mo,rt) returns the terminal mode; in the case of ANSI mode it returns 
 a,switches,columns,rows; to see those, you need ##(mo,rt).
 
@@ -94,15 +98,16 @@ Thanks to Ben Kuhn for getting me Hooked on Pythonics (and for getting me going
 on improving RS); to John Levine for consultation, stimulation, and general 
 interest; and to Andrew Walker for his enthusiasm and support.
 
-Please feel free to report bugs!
+Please feel free to report bugs or request features!
 
 Nat Kuhn (NSK, nk@natkuhn.com)
 
-        TODO: fix ANSICON issue as described under RS
-        TODO: add #(mo,ar) for arithmetic radix and #(mo,br) for boolean radix
-        TODO: paren matching? really? these kids today are soft!
-        MAYBE: change class names to caps
-        
+    TODO: add #(mo,ar) for arithmetic radix and #(mo,br) for boolean radix
+    MAYBE: change class names to caps
+    KNOWN ISSUE: ANSICON handles wrap to new line differently from xterm,
+        with the result that when you type to the last letter the cursor
+        advances to the start of the next row.  The result winds up being
+        an extra blank line.
 """
 # v1.1 implements new RS with cursor keys, input history, etc.
 # v1.0 moves the _Getch code into the main module so it all runs out of a single file
@@ -115,7 +120,7 @@ Nat Kuhn (NSK, nk@natkuhn.com)
 # v0.6 major change is adding endchunk(), eliminating corner cases; partial call
 #   primitives now work
 
-# Sample scripts:
+# Sample scripts [supplied on GitHub, e.g. use #(fb,fact.trac)]:
 
 #(ds,fact,(#(eq,*,0,1,(#(ml,*,#(fact,#(su,*,1)))))))'
 #(ss,fact,*)'
@@ -137,10 +142,8 @@ Nat Kuhn (NSK, nk@natkuhn.com)
 # example: #(exp,2,6)'64
 
 from __future__ import print_function   # for Python 3 compatibility
-import re
-import sys
+import re, sys, os, time
 import cPickle as pickle                # for SB and FB
-import os                               # for EB
 
 class form:
     """a 'form' is a 'defined string.' It is stored as a list; each element in 
@@ -508,6 +511,10 @@ class TheOS:
         return None
     
 class WindowsOS(TheOS):
+    def __init__(self):
+        aw = self.getsizeenv()
+        self.ansiwidth = aw[1] if aw else None
+    
     def getraw(self):
         import msvcrt
         return msvcrt.getch()
@@ -569,9 +576,9 @@ class WindowsOS(TheOS):
             return None
         if res:
             import struct
-            (bufx, bufy, curx, cury, wattr,
-             left, top, right, bottom, maxx, maxy) = struct.unpack("hhhhHhhhhhh", csbi.raw)
-            cols = right - left + 1
+            (bufx, bufy, curx, cury, wattr, left, top, right, bottom, \
+                maxx, maxy) = struct.unpack("hhhhHhhhhhh", csbi.raw)
+            cols = self.ansiwidth if self.ansiwidth else (right - left + 1)
             rows = bottom - top + 1
             return rows, cols
         else:
@@ -585,10 +592,10 @@ class WindowsOS(TheOS):
         else:
             m = WindowsOS.ANSIre.match(e)
             try:
-                if m == None:
-                    raise ValueError
-                return ( int(m.group(4)), int(m.group(3)) )   #WxH
-            except ValueError:
+                #for ANSICON, return "buffer width" rather than "screen width"
+                #because that is where it wraps
+                return ( int(m.group(4)), int(m.group(1)) )   # H x w
+            except (AttributeError, ValueError):
                 raise termError('ANSICON misformatted: ',e)
 
 class PosixOS(TheOS):
@@ -750,6 +757,7 @@ class BasicConsole(Console):
         2. Doesn't work well when you backspace over a printed-out \ from 
             the echoing mode.
         """
+        global rshistory
         string = ''
         mc = metachar.get()
         echoing = False #set to true when we BS past \n
@@ -777,6 +785,7 @@ class BasicConsole(Console):
                 ourOS.print_(ch, end='')
                 if ch == mc:
                     sys.stdout.flush()
+                    rshistory.append( string )
                     return string
                 else:
                     string += ch
@@ -795,9 +804,8 @@ class LineConsole(Console):
         return self.inkey()
     
     def readstr(self, *args):
+        global rshistory
         prim.condTMA(args, 0)
-#         if len(args) > 0 and Mode.unforgiving():
-#             prim.TMAError( len(args), 0 )
         string = ''
         mc = metachar.get()
         while True:
@@ -806,9 +814,12 @@ class LineConsole(Console):
                 if mc != '\n' and self.inbuf[0] == '\n':
                     #strip \n immed following meta
                     self.inbuf = self.inbuf[1:]
+                rshistory.append( string )
                 return string
             else:
                 string += ch
+
+ESC = chr(27)
 
 class AnsiConsole(Console):
     """
@@ -824,9 +835,9 @@ class AnsiConsole(Console):
     (supplying the appropriate paths for the files, if necessary).
     
     Known issue with ANSICON: when you make the window narrower, ANSICON
-    doesn't wrap the lines at the new width, it just makes a scroll bar.  The
-    input, however is wrapped at the window width.  So best to leave it at 
-    80 characters for now, or run under Cygwin.
+    doesn't wrap the lines at the new width, it just makes a scroll bar.  As 
+    a result I just leave the line width at buffer width.  If you want a truly
+    narrower window, use Cygwin.
     
     Shift-left and shift-right go to beginning and end of line (alt-left
     and alt-right in Windows ANSICON).
@@ -837,6 +848,12 @@ class AnsiConsole(Console):
     #(mo,rt,a,switches,columns,rows)
     
     Switches (default is +o+e+l):
+    
+    The first set of switches has to do with ascertaining the screen size.  It
+    tries whichever of the the following methods are enabled (o and e by 
+    default), in order, and uses the first successful one.  If +d is enabled
+    it tries the other enabled modes and reports any discrepancies--mainly 
+    useful for debugging:
     o   get screen size from OS (seems to work pretty universally)
     t   get screen size from polling the terminal using ESC sequences (works
             on OS X Terminal.app and not many others; prints garbage chars
@@ -849,23 +866,24 @@ class AnsiConsole(Console):
     f   use fixed screen size, as set by columns, rows; default 80,25. These
             arguments can be present and they set the screen size for +f
             should it be activated in the future
-    d   report discrepancies from the above methods, if > 1 is activated
-            if not reporting discrepancies, first successful method will be 
-            used; if 'd' is not set it stops with first successful method,
-            in the order listed above
-    l   get screen location by polling the terminal; used when up-arrow
-            would go off top of screen
+    d   report discrepancies from the above methods
+            
+    The second set of switches has to do with ascertaining the location of
+    the cursor on the screen, mainly used to for figuring out when  up-arrow
+    would go off top of screen (default is +l):
+    
+    l   get screen location by polling the terminal
     v   validate screen position and give error if it isn't correct (errors
             can be thrown by excessively fast typing, or by bug in ANSICON
-            on Windows).
+            on Windows); again mainly for debugging
             
     #(mo,rt) returns a,switches,cols,rows where cols,rows is the actual
         reported size of the screen. Note that for all this to print you need
         to use ##(mo,rt)
     """
-    global ESC
-    ESC = chr(27)
-    
+#     global ESC
+#     ESC = chr(27)
+#     
     DEFSIZE = (25, 80)
     MINROWS = 4
     MINCOLS = 10
@@ -965,7 +983,6 @@ class AnsiConsole(Console):
         escape sequences.
         If it takes > 50 msec to get to ESC, we conclude that device-polling
         is not working."""
-        import time
         time0 = time.time()
         while True:
             ch = ourOS.getraw()
@@ -1101,7 +1118,7 @@ class AnsiConsole(Console):
                     self.adjustcarriage(head + mc)   #remember, mc could be \n
                     self.inp.rstring = head
                     self.inp.redolengths()
-                    rshistory.append(self.inp)
+                    rshistory.append( head )
                     sys.stdout.flush()
                     return head
                 tail = self.inp.rstring[self.inp.inspoint:]
@@ -1115,16 +1132,17 @@ class AnsiConsole(Console):
                 else:
                     self.inp.eprint(ch + tail) #even if it's printable, need to erase due to linewrapping
                 self.inp.inspoint += 1
-                if self.inp.inspoint == len(self.inp.rstring):
-                    continue        #already in the right place
-                self.inp.cursorisat( len(self.inp.rstring) )
-                self.inp.curtoinspoint()    # end of RS main loop
+                if self.inp.inspoint != len(self.inp.rstring):
+                    self.inp.cursorisat( len(self.inp.rstring) )
+                    self.inp.curtoinspoint()
+                if ch == ')':
+                    self.inp.parenmatch()        # end of RS main loop
     
     def dohist(self, dir):
         if self.histpointer == None:    #set up history
             self.histcopy = []
             for x in rshistory:
-                self.histcopy.append(x.copy())
+                self.histcopy.append( InputString(x,len(x)) )
             self.histpointer = len(self.histcopy)
             self.histcopy.append(self.inp)
         if dir == 'b':       #move back
@@ -1226,6 +1244,8 @@ class InputString(object):
     tc.carriagepos is the position within the current "line". It is set by PS, 
         and at the END of RS
     """
+    FLASHSECS = .150    # amount of time to flash for paren matching
+    
     def __init__(self, str, point):
         self.rstring = str
         self.inspoint = point
@@ -1234,10 +1254,10 @@ class InputString(object):
         self.posfrompoint(point)    #initialize self.hanging, so hitting
             # ^C or ^D as first input char doesn't generate exception
     
-    def copy(self):
-        cop = InputString(self.rstring, self.inspoint)
-        cop.redolengths()
-        return cop
+#     def copy(self):
+#         cop = InputString(self.rstring, self.inspoint)
+#         cop.redolengths()
+#         return cop
     
     def redolengths(self):
         self.linelengths = map(len,self.rstring.split('\n'))
@@ -1310,7 +1330,8 @@ class InputString(object):
         cursorto moves the screen cursor from curpoint to 'newpoint'.
         
         cursorto is used by cursor key handling, repositioning the cursor after 
-        printing to the screen, and repositioning before backspace/delete
+        printing to the screen, repositioning before backspace/delete, and
+        paren matching
         """
         fromrow = self.rowloc
         rowsup = self.rowsdown
@@ -1376,8 +1397,6 @@ class InputString(object):
         if tc.sb.switches['v']:
             raise termError('Column alignment error: colloc=', \
                 self.colloc, ' but actually is ', coords[1])
-#         else:   # commented out d/t bug in ANSICON, returning wrong col
-#             self.colloc = coords[1]
     
     def charleft(self):
         if self.inspoint == 0:
@@ -1480,6 +1499,26 @@ class InputString(object):
         self.inspoint += min(charsleft, colsleft) + (1 if gohang else 0)
         self.curtoinspoint()
         return
+    
+    def parenmatch(self):
+    #TODO bad things will happen if paren match rolls off top of screen
+        i = self.inspoint - 1
+        bal = 0
+        while i >= 0:
+            c = self.rstring[i]
+            if c == ')':
+                bal += 1
+            elif c == '(':
+                bal -= 1
+                if bal == 0:
+                    self.cursorto(i)
+                    sys.stdout.flush()
+                    time.sleep(InputString.FLASHSECS)
+                    self.curtoinspoint()
+                    return
+            i -= 1
+        if bal > 0: # too many )
+            tc.bell()
 
 class specchar:
     """a container for the 'meta character' which terminates #(RS), and the 
@@ -2028,7 +2067,10 @@ prim( 'mo', Mode.setmode )
 def main(*args):
     global syntchar, forms, metachar, activeImpliedCall, tracing
     global ourOS, tc, rshistory
-    ourOS = TheOS.whichOS()
+    try:
+        ourOS = TheOS.whichOS()
+    except termError as e:  # misformatted ansicon string can throw error
+        print('Error:', str(e))
     rshistory = []
     forms = {}      # the defined strings
     syntchar = syntclass('#')
