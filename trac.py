@@ -527,7 +527,7 @@ class WindowsOS(TheOS):
             return AnsiConsole.BS
         if code == 127:         # TODO check this
             return AnsiConsole.DEL
-        if code == 224:      # alpha
+        if code == 224:         # alpha
             ch = tc.inkey()
             if ch == 'H':                  #up arrow
                 inp.rowup()
@@ -714,7 +714,6 @@ class Console(object):
         return self.contype
 
     def inkey(self):
-#         global ourOS
         if self.inbuf:
             ch = self.inbuf[0]
             self.inbuf = self.inbuf[1:]
@@ -841,8 +840,8 @@ class AnsiConsole(Console):
     Double-click on ANSICON, and then enter "python trac.py -mo,rt,a" 
     (supplying the appropriate paths for the files, if necessary).
     
-    Known issue with ANSICON: when you make the window narrower, ANSICON
-    doesn't wrap the lines at the new width, it just makes a scroll bar.  As 
+    Known issue with the Windows Console: when you make the window narrower, 
+    it doesn't wrap the lines at the new width, it just makes a scroll bar.  As 
     a result I just leave the line width at buffer width.  If you want a truly
     narrower window, use Cygwin.
     
@@ -888,9 +887,6 @@ class AnsiConsole(Console):
         reported size of the screen. Note that for all this to print you need
         to use ##(mo,rt)
     """
-#     global ESC
-#     ESC = chr(27)
-#     
     DEFSIZE = (25, 80)
     MINROWS = 4
     MINCOLS = 10
@@ -1046,11 +1042,13 @@ class AnsiConsole(Console):
             "'ab".  This seems to be a bug in the Mac Terminal program, which I 
             can reproduce in my "screenplay.py" test program.
         2. ^C or ^D with cursor in hanging position overwrites last character
-        3. screen resize can cause cursor to wrap to next line rather than going into 
-            hanging location-->assert not shouldhang error
-        4. with meta = \n, go one character over the end of the line, cursor back, 
-            and hit enter; it prints a blank line, unlike hitting enter at the very end of
-            the line
+        3. screen resize can cause cursor to wrap to next line rather than 
+            going into hanging location
+        4. with meta = \n, go one character over the end of the line, cursor 
+            back, and hit enter; it prints a blank line, unlike hitting enter 
+            at the very end of the line
+        5. typing close parens to rapidly causes failure with paren matching,
+            at least on input with a \n in the middle.
         """
         mc = metachar.get()
         self.histpointer = None
@@ -1147,9 +1145,7 @@ class AnsiConsole(Console):
     
     def dohist(self, dir):
         if self.histpointer == None:    #set up history
-            self.histcopy = []
-            for x in rshistory:
-                self.histcopy.append( InputString.new(x,len(x)) )
+            self.histcopy = map(lambda x: InputString.new(x,len(x)), rshistory)
             self.histpointer = len(self.histcopy)
             self.histcopy.append(self.inp)
         if dir == 'b':       #move back
@@ -1535,16 +1531,6 @@ class ACInputString(InputString):
     false at all times, should work
     """
     def posfrompoint(self, point):
-        """
-        this sets curpoint to 'point', and computes the (virtual) line and pos 
-        corresponding to that point. It also tells how many screen rows it
-        should be down from the start of line 0 on a screen with scrsize[1] 
-        columns. it sets 'hanging' if printing to here would leave cursor in 
-        hanging position; the actual printed character may or may not actually 
-        be in hanging position.
-        
-        used in cursorisat() and cursorto()
-        """
         self.curpoint = point
         self.pos = tc.carriagepos + point
         rd = 0      # rows down
@@ -1570,20 +1556,8 @@ class ACInputString(InputString):
         char, the rest of the input string is discarded; (b) when inserting a 
         newline; and (c) when backspacing; (d) with ^C or ^D
         """
-#         start = 0
-#         if self.hanging:
-#             if self.rowloc == tc.scrsize[0]:   #last character on screen
-#                 if s == '': return
-#                 self.rowloc -= 1  #the screen will roll up 1
-#             ourOS.print_('\n',end='')
-#             if s == '':
-#                 ourOS.print_(ESC+'[J', end='')
-#                 self.scrgoto(-1, tc.scrsize[1])  # go back up
-#                 return
-#             if s[0] == '\n': start = 1
         ourOS.print_(ESC+'[J'+s, end='')
-    
-    
+
 class specchar:
     """a container for the 'meta character' which terminates #(RS), and the 
     'syntax character' (default, #), which is not changeable in the T-64 spec, 
@@ -1648,7 +1622,6 @@ class block:      # static class to handle the block (disk storage) primitives.
         l = len(args)
         if l == 0: prim.TFAError(0,1,False)     # expecting 1
         prim.condTMA(args,1)
-#         if l > 1 and Mode.unforgiving(): prim.TMAError(l,1)
         try:
             with file(args[0]) as input:
                 fblist = pickle.load(input)
@@ -1661,7 +1634,6 @@ class block:      # static class to handle the block (disk storage) primitives.
         l = len(args)
         if l == 0: prim.TFAError(0,1,False)     # expecting 1
         prim.condTMA(args,1)
-#        if l > 1 and Mode.unforgiving(): prim.TMAError(l,1)
         try:
             os.remove(args[0])
         except OSError as e:
