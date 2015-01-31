@@ -59,13 +59,13 @@ a, b, or l.  #(mo,rt) returns the current mode, in lower case.  Incidentally,
             backslashes.  Default mode for Windows, has known issues.  Based 
             on code from Ben Kuhn.
     a   ANSI terminal (e.g., VT-100) mode: default mode for Unix/Mac OS X; 
-            also works on Windows as described under RS.  Works with backspace,
-            delete, cursor up/down/left/right, and implements unix shell-style  
-            history using alt-left-arrow and alt-right-arrow (alt-up and 
-            alt-down on Windows).  Shift-left- and right-arrow (alt-left and 
-            alt-right on Windows) move to beginning and end of the current 
-            line.  I hope someone likes this because it was painful to    
-            implement!
+            also works on Windows as described under AnsiConsole.  Works with 
+            backspace, delete, cursor up/down/left/right, and implements unix 
+            shell-style history using alt-left-arrow and alt-right-arrow 
+            (alt-up and alt-down on Windows).  Shift-left- and right-arrow 
+            (alt-left and alt-right on Windows) move to beginning and end of 
+            the current line.  I hope someone likes this because it was 
+            painful to implement!
 
 #(mo,rt) returns the terminal mode; in the case of ANSI mode it returns 
 a,switches,columns,rows; to see those, you need ##(mo,rt).
@@ -597,6 +597,9 @@ class WindowsOS(TheOS):
                 return ( int(m.group(4)), int(m.group(1)) )   # H x w
             except (AttributeError, ValueError):
                 raise termError('ANSICON misformatted: ',e)
+    
+    def newInputString(self,str,point):
+        return ACInputString(str,point)     #for ANSICON
 
 class PosixOS(TheOS):
     def getraw(self):
@@ -673,6 +676,9 @@ class PosixOS(TheOS):
             return a
         else:
             return None
+    
+    def newInputString(self,str,point):
+        return InputString(str,point)
 
 class CygwinOS(PosixOS):
     def __init__(self):
@@ -827,7 +833,8 @@ class AnsiConsole(Console):
     history.  Up, down, left,right cursor keys are implemented, along with 
     entry history.
     
-    Runs on *nix including OSX, Windows under Cygwin or ANSICON.
+    Runs on *nix including OSX, Windows under Cygwin or using Jason Hood's 
+    ANSICON.
     
     For ANSICON, see http://adoxa.altervista.org/ansicon/index.html
     Download the full package, use either the x86 (32-bit) or x64 (64-bit).
@@ -1060,14 +1067,14 @@ class AnsiConsole(Console):
                 startnum += len(startstr)
             if startnum < 0: startnum = 0
             startnum = min(startnum, len(startstr) )
-            self.inp = InputString(startstr, startnum)
+            self.inp = InputString.new(startstr, startnum)
             ourOS.print_(startstr, end='')
             self.refreshsize()
             self.inp.cursorisat( len(startstr) )
             self.inp.curtoinspoint()
         else:
             prim.condTMA(args,0)
-            self.inp = InputString('',0)
+            self.inp = InputString.new('',0)
         
         while True:             #RS main loop
             try:
@@ -1142,7 +1149,7 @@ class AnsiConsole(Console):
         if self.histpointer == None:    #set up history
             self.histcopy = []
             for x in rshistory:
-                self.histcopy.append( InputString(x,len(x)) )
+                self.histcopy.append( InputString.new(x,len(x)) )
             self.histpointer = len(self.histcopy)
             self.histcopy.append(self.inp)
         if dir == 'b':       #move back
@@ -1246,6 +1253,10 @@ class InputString(object):
     """
     FLASHSECS = .150    # amount of time to flash for paren matching
     
+    @staticmethod
+    def new(str,point):
+        return ourOS.newInputString(str,point)
+    
     def __init__(self, str, point):
         self.rstring = str
         self.inspoint = point
@@ -1253,11 +1264,6 @@ class InputString(object):
         tc.refreshsize()
         self.posfrompoint(point)    #initialize self.hanging, so hitting
             # ^C or ^D as first input char doesn't generate exception
-    
-#     def copy(self):
-#         cop = InputString(self.rstring, self.inspoint)
-#         cop.redolengths()
-#         return cop
     
     def redolengths(self):
         self.linelengths = map(len,self.rstring.split('\n'))
@@ -1520,6 +1526,64 @@ class InputString(object):
         if bal > 0: # too many )
             tc.bell()
 
+class ACInputString(InputString):
+    """This class is to deal with the fact that ANSICON handles the final
+    column differently from xterm: after printing in the last column it wraps
+    to the next line.  If the next character printed is \n, it is ignored.
+    
+    self.hanging is only used in eprint, rowup, and rowleft.  If we set it
+    false at all times, should work
+    """
+    def posfrompoint(self, point):
+        """
+        this sets curpoint to 'point', and computes the (virtual) line and pos 
+        corresponding to that point. It also tells how many screen rows it
+        should be down from the start of line 0 on a screen with scrsize[1] 
+        columns. it sets 'hanging' if printing to here would leave cursor in 
+        hanging position; the actual printed character may or may not actually 
+        be in hanging position.
+        
+        used in cursorisat() and cursorto()
+        """
+        self.curpoint = point
+        self.pos = tc.carriagepos + point
+        rd = 0      # rows down
+        self.hanging = False
+        for self.line in range(len(self.linelengths)):
+            ll = self.linelengths[self.line]
+            self.colloc = self.pos % tc.scrsize[1] + 1
+            if self.pos <= ll:    #not hanging, for sure
+                self.rowsdown = rd + self.pos // tc.scrsize[1]
+                return
+            self.pos -= (ll + 1)       # count 1 for the \n
+            rd += max(0, ll-1) // tc.scrsize[1] + 1           # same here
+                # use ll-1 because an 80-char line on an 80-char screen won't 
+                # wrap, i.e. the returned value says "if I just printed that, 
+                # how many lines down will I be," rather than "if I want to 
+                # move the insertion point here, how many lines down should 
+                # it be?" #hangovereffect
+        raise termError("Logic error (posline): curpoint=",self.curpoint, \
+            'linelengths=',self.linelengths, ", overflow=",self.pos)
+
+    def eprint(self, s):
+        """erase to end of screen. eprint is used (a) when inserting the meta 
+        char, the rest of the input string is discarded; (b) when inserting a 
+        newline; and (c) when backspacing; (d) with ^C or ^D
+        """
+#         start = 0
+#         if self.hanging:
+#             if self.rowloc == tc.scrsize[0]:   #last character on screen
+#                 if s == '': return
+#                 self.rowloc -= 1  #the screen will roll up 1
+#             ourOS.print_('\n',end='')
+#             if s == '':
+#                 ourOS.print_(ESC+'[J', end='')
+#                 self.scrgoto(-1, tc.scrsize[1])  # go back up
+#                 return
+#             if s[0] == '\n': start = 1
+        ourOS.print_(ESC+'[J'+s, end='')
+    
+    
 class specchar:
     """a container for the 'meta character' which terminates #(RS), and the 
     'syntax character' (default, #), which is not changeable in the T-64 spec, 
