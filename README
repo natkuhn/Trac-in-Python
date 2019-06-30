@@ -86,7 +86,7 @@ a, b, or l.  #(mo,rt) returns the current mode, in lower case.  Incidentally,
             backslashes.  Default mode for Windows, has known issues.  Based 
             on code from Ben Kuhn.
     a   ANSI terminal (e.g., VT-100) mode: default mode for Unix/Mac OS X; 
-            also works on Windows as described under RS.  Works with backspace,
+            also works on Windows as described below.  Works with backspace,
             delete, cursor up/down/left/right, and implements unix shell-style  
             history using alt-left-arrow and alt-right-arrow (alt-up and 
             alt-down on Windows).  Shift-left- and right-arrow (alt-left and 
@@ -136,8 +136,8 @@ More information on ANSICON and ANSI terminal mode:
     Double-click on ANSICON, and then enter "python trac.py -mo,rt,a" 
     (supplying the appropriate paths for the files, if necessary).
     
-    Known issue with ANSICON: when you make the window narrower, ANSICON
-    doesn't wrap the lines at the new width, it just makes a scroll bar.  As 
+    Known issue with the Windows Console: when you make the window narrower, 
+    it doesn't wrap the lines at the new width, it just makes a scroll bar.  As 
     a result I just leave the line width at buffer width.  If you want a truly
     narrower window, use Cygwin.
     
