@@ -143,7 +143,10 @@ Nat Kuhn (NSK, nk@natkuhn.com)
 
 from __future__ import print_function   # for Python 3 compatibility
 import re, sys, os, time
-import cPickle as pickle                # for SB and FB
+try:
+  import cPickle as pickle                # for SB and FB
+except:
+  import pickle
 
 class form:
     """a 'form' is a 'defined string.' It is stored as a list; each element in 
