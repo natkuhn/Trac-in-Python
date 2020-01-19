@@ -85,30 +85,30 @@ Claude used the term "implied call."
     `a`, `b`, or `l`. `#(mo,rt)` returns the current mode, in lower case. Incidentally,
     `rt` is for "reactive typewriter," Mooers' term for an interactive terminal.
 
-        `l`   line-oriented i/o: uses sys.stdin.readline(), so that you need to
-                hit <enter> before anything is actually read.  Any newline
-                immediately after a meta character is stripped out.
+- `l` (line-oriented i/o): uses sys.stdin.readline(), so that you need to hit
+  `<enter>` before anything is actually read. Any newline immediately after a
+  meta character is stripped out.
 
-        `b`   basic terminal: implements a rudimentary backspace, which works back
-                to the last newline, and then echoes deleted characters between
-                backslashes.  Default mode for Windows, has known issues.  Based
-                on code from Ben Kuhn.
+- `b` (basic terminal): implements a rudimentary backspace, which works back
+  to the last newline, and then echoes deleted characters between
+  backslashes. Default mode for Windows, has known issues. Based
+  on code from Ben Kuhn.|
 
-        `a`   ANSI terminal (e.g., VT-100) mode: default mode for Unix/Mac OS X;
-                also works on Windows as described below.  Works with backspace,
-                delete, cursor up/down/left/right, and implements unix shell-style
-                history using alt-left-arrow and alt-right-arrow (alt-up and
-                alt-down on Windows).  Shift-left- and right-arrow (alt-left and
-                alt-right on Windows) move to beginning and end of the current
-                line.  I hope someone likes this because it was painful to
-                implement!  In ANSI mode, `#(mo,rt)` returns `a,switches,columns,rows`;
-                to see those, you need to type `##(mo,rt)'`.
+- `a` (ANSI terminal \[e.g., VT-100\] mode): default mode for Unix/Mac OS X;
+  also works on Windows as described below. Works with backspace,
+  delete, cursor up/down/left/right, and implements unix shell-style
+  history using alt-left-arrow and alt-right-arrow (alt-up and
+  alt-down on Windows). Shift-left- and right-arrow (alt-left and
+  alt-right on Windows) move to beginning and end of the current
+  line. I hope someone likes this because it was painful to
+  implement! In ANSI mode, `#(mo,rt)` returns `a,switches,columns,rows`;
+  to see those, you need to type `##(mo,rt)'`.
 
-6.  In ansi mode of #5 above, I have implemented an extended version of
+6.  In ANSI mode of #5 above, I have implemented an extended version of
     read string: #(rs,init string,displacement): it is as if the user has already
     entered 'init string' with the cursor placed at 'displacement'. If
-    'displacement' is positive or 0 is is from the start of the string; if it is
-    negative or -0 it is from the end, i.e. '-0' positions the cursor at the very
+    'displacement' is positive or `0` is is from the start of the string; if it is
+    negative or `-0` it is from the end, i.e. `-0` positions the cursor at the very
     end of the string. This makes scripts like this one, to edit a form, possible:
 
 ```
@@ -119,6 +119,8 @@ Claude used the term "implied call."
 `#(edit,form)` then allows you to edit 'form'. Note you must move the cursor to
 the end before you hit the meta character, otherwise it will get truncated.
 Hitting down-arrow repeatedly is a quick way to move it to the end.
+
+See more information on ANSI mode below.
 
 7. I have also added an 'unforgiving' mode: `#(mo,e,u)` turns it on and
    `#(mo,e,-u)` turns it off. It generates error messages and terminates scripts
@@ -138,9 +140,9 @@ Please feel free to report bugs or request features!
 
 Nat Kuhn (NSK, nk@natkuhn.com)
 
-More information on ANSICON and ANSI terminal mode:
+More information on ANSI terminal mode and ANSICON:
 
-For ANSICON, see http://adoxa.altervista.org/ansicon/index.html
+For ANSICON, see http://adoxa.altervista.org/ansicon/index.html.
 Download the full package, use either the x86 (32-bit) or x64 (64-bit).
 Double-click on ANSICON, and then enter `python trac.py -mo,rt,a`
 (supplying the appropriate paths for the files, if necessary).
@@ -161,35 +163,37 @@ and alt-down in Windows ANSICON).
 Switches (default is `+o+e+l`):
 
 The first set of switches has to do with ascertaining the screen size. It
-tries whichever of the the following methods are enabled (o and e by
-default), in order, and uses the first successful one. If +d is enabled
+tries whichever of the the following methods are enabled (`o` and `e` by
+default), in order, and uses the first successful one. If `+d` is enabled
 it tries the other enabled modes and reports any discrepancies—mainly
 useful for debugging:
 
-        'o' get screen size from OS (seems to work pretty universally)
+- 'o': get screen size from OS (seems to work pretty universally)
 
-        `t` get screen size from polling the terminal using ESC sequences (works
-        on OS X Terminal.app and not many others; prints garbage chars in ANSICON)
+- `t`: get screen size from polling the terminal using ESC sequences (works
+  on OS X Terminal.app and not many others; prints garbage chars in ANSICON)
 
+- `s`: get screen size from using 'tput' in subprocesses (supposedly
+  necessary for cygwin using native Windows Python, but character-
+  by-character I/O doesn't work under those circumstances anyway
 
-s get screen size from using 'tput' in subprocesses (supposedly
-necessary for cygwin using native Windows Python, but character-
-by-character I/O doesn't work under those circumstances anyway
-e get screen size from environment variables (does not vary dynamically
-as user resizes screen, so a next-to-last resort)
-f use fixed screen size, as set by columns, rows; default 80,25. These
-arguments can be present and they set the screen size for +f
-should it be activated in the future
-d report discrepancies from the above methods
+- `e`: get screen size from environment variables (does not vary dynamically
+  as user resizes screen, so a next-to-last resort)
+
+- `f`: use fixed screen size, as set by columns, rows; default 80,25. These
+  arguments can be present and they set the screen size for `+f`
+  should it be activated in the future
+
+- `d` report discrepancies from the above methods
 
 The second set of switches has to do with ascertaining the location of
 the cursor on the screen, mainly used to for figuring out when up-arrow
-would go off top of screen (default is +l):
+would go off top of screen (default is `+l`):
 
-l get screen location by polling the terminal
-v validate screen position and give error if it isn't correct (errors
-can be thrown by excessively fast typing, or by bug in ANSICON
-on Windows); again mainly for debugging
+- `l` get screen location by polling the terminal
+- `v` validate screen position and give error if it isn't correct (errors
+  can be thrown by excessively fast typing, or by bug in ANSICON
+  on Windows); again mainly for debugging
 
 `#(mo,rt)` returns a,switches,cols,rows where cols,rows is the actual
 reported size of the screen. Note that for all this to print you need
