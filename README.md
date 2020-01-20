@@ -1,11 +1,15 @@
 This Trac Processor (i.e., interpreter) implements Calvin N. Mooers Trac T-64
 standard, as described in his 1972 "[Definition and Standard for Trac (R) T-64
-Language](http://web.archive.org/web/20050205173449/http://tracfoundation.org/t64tech.htm)", also know as RR-284.
+Language](http://web.archive.org/web/20050205173449/http://tracfoundation.org/t64tech.htm)",
+also know as RR-284.
 
 The same page has a link to a "beginner's manual" for Trac. I've also made a
 [blog post about this project](http://nats-tech.blogspot.com/2013/07/the-land-of-trac.html).
 
-You can [![run it on Repl.it](https://repl.it/badge/github/natkuhn/Trac-in-Python)](https://repl.it/github/natkuhn/Trac-in-Python)
+Clicking here will [open a terminal running
+Trac](https://Trac-in-Python.natkuhn.repl.run){:target="\_blank"} where you
+can enter a program, hosted on [repl.it](https://repl.it). I will be posting
+[more on this](https://familykuhn.net/nat/trac) soon.
 
 The home page for this project is https://github.com/natkuhn/Trac-in-Python. If
 you are looking at this file on that page, you can download the file
