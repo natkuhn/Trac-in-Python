@@ -10,7 +10,7 @@ The same page has a link to a "beginner's manual" for Trac. I've also made a
 Trac](https://Trac-in-Python.natkuhn.repl.run){:target="\_blank"} where you
 can enter a program, hosted on [repl.it](https://repl.it). You can click 
 here for [more information and a very small amount of 
-instruction](https://familykuhn.net/nat/trac).
+instruction](https://familykuhn.net/nat/trac).\]
 
 The home page for this project is https://github.com/natkuhn/Trac-in-Python. If
 you are looking at this file on that page, you can download the file
