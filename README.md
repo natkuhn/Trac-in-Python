@@ -6,10 +6,9 @@ also know as RR-284.
 The same page has a link to a "beginner's manual" for Trac. I've also made a
 [blog post about this project](http://nats-tech.blogspot.com/2013/07/the-land-of-trac.html).
 
-\[Edit January 2020: Clicking here will [open a terminal running
-Trac](https://Trac-in-Python.natkuhn.repl.run){:target="\_blank"} where you
-can enter a program, hosted on [repl.it](https://repl.it). You can click 
-here for [more information and a very small amount of 
+\[Edit January 2020: Clicking here will [run this Trac
+processor](https://replit.com/@NatKuhn/Trac-in-Python) on [replit.com](https://replit.com). 
+You can click here for [more information and a very small amount of 
 instruction](https://familykuhn.net/nat/trac).\]
 
 The home page for this project is https://github.com/natkuhn/Trac-in-Python. If
