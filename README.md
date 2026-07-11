@@ -7,7 +7,7 @@ Clicking here will [run this Trac
 processor](https://replit.com/@NatKuhn/Trac-in-Python) on [replit.com](https://replit.com). 
 You can click here for [a bit of background and an explanation of the example 
 scripts](https://familykuhn.net/nat/trac). For a more long-winded history and recollections,
-see my [blog post about this project](http://nats-tech.blogspot.com/2013/07/the-land-of-trac.html).
+see my [blog post about this project](https://nat.familykuhn.net/2013/07/the-land-of-trac/).
 
 The GitHub home page for this project is https://github.com/natkuhn/Trac-in-Python. If
 you are looking at this file on that page, you can download the file
